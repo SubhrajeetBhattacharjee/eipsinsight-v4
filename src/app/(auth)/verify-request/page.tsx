@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { ArrowLeft, Mail, Loader2, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
-export default function VerifyRequestPage() {
+function VerifyRequestContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") || "";
@@ -184,5 +184,25 @@ export default function VerifyRequestPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function VerifyRequestPage() {
+  return (
+    <Suspense fallback={
+      <div className="w-full max-w-md">
+        <div className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-black/40 p-8 backdrop-blur-2xl">
+          <div className="animate-pulse space-y-6">
+            <div className="mx-auto h-16 w-16 rounded-full bg-slate-700/40" />
+            <div className="h-8 w-48 mx-auto rounded bg-slate-700/40" />
+            <div className="h-4 w-64 mx-auto rounded bg-slate-700/40" />
+            <div className="h-16 rounded-lg bg-slate-700/40" />
+            <div className="h-12 rounded-lg bg-slate-700/40" />
+          </div>
+        </div>
+      </div>
+    }>
+      <VerifyRequestContent />
+    </Suspense>
   );
 }
