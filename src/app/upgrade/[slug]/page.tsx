@@ -5,24 +5,27 @@ import { useParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { 
   Package,
-  ExternalLink,
   AlertCircle,
-  ArrowRight,
-  Github,
-  Calendar,
-  Layers,
   FileText,
   Clock,
-  Activity
+  Activity,
 } from 'lucide-react';
 import { client } from '@/lib/orpc';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { UpgradeTimelineChart } from '@/app/upgrade/_components/upgrade-timeline-chart';
+import { PageHeader } from '@/components/header';
+import { getUpgradeTimelineData } from '@/data/upgrade-timelines';
+import { UpgradeBlogCarousel } from '@/app/upgrade/_components/upgrade-blog-carousel';
+import { UpgradeEIPsShowcase } from '@/app/upgrade/_components/upgrade-eips-showcase';
+import { getUpgradeBlogs } from '@/data/upgrade-blogs';
+import { Info, ChevronDown } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
 
 interface UpgradeData {
-  id: number;
+  id: number;         
   slug: string;
   name: string;
   meta_eip: number | null;
@@ -37,13 +40,6 @@ interface CompositionItem {
   updated_at: string | null;
 }
 
-interface CompositionEvent {
-  commit_date: string | null;
-  eip_number: number | null;
-  event_type: string | null;
-  bucket: string | null;
-  commit_sha: string | null;
-}
 
 // Bucket color mapping
 const bucketColors: Record<string, { bg: string; text: string; border: string }> = {
@@ -63,17 +59,6 @@ const statusColors: Record<string, { bg: string; text: string }> = {
   'Withdrawn': { bg: 'bg-red-500/20', text: 'text-red-300' },
 };
 
-// Helper to format bucket name
-function formatBucket(bucket: string | null): string {
-  if (!bucket) return 'Unknown';
-  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
-}
-
-// Helper to format event type
-function formatEventType(eventType: string | null): string {
-  if (!eventType) return 'Changed';
-  return eventType.toLowerCase().replace(/_/g, ' ');
-}
 
 export default function UpgradePage() {
   const params = useParams();
@@ -81,9 +66,19 @@ export default function UpgradePage() {
 
   const [upgrade, setUpgrade] = useState<UpgradeData | null>(null);
   const [composition, setComposition] = useState<CompositionItem[]>([]);
-  const [events, setEvents] = useState<CompositionEvent[]>([]);
+  const [timelineData, setTimelineData] = useState<Array<{
+    date: string;
+    included: string[];
+    scheduled: string[];
+    declined: string[];
+    considered: string[];
+    proposed: string[];
+  }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  
+  const blogPosts = getUpgradeBlogs(slug);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -91,15 +86,91 @@ export default function UpgradePage() {
         setLoading(true);
         setError(null);
 
-        const [upgradeData, compositionData, eventsData] = await Promise.all([
-          client.upgrades.getUpgrade({ slug }),
-          client.upgrades.getUpgradeCompositionCurrent({ slug }),
-          client.upgrades.getUpgradeCompositionEvents({ slug, limit: 50 }),
-        ]);
+        // Check if we have constant timeline data for this upgrade
+        const constantTimeline = getUpgradeTimelineData(slug);
+        
+        if (constantTimeline) {
+          // Use constant data for Pectra/Fusaka
+          const upgradeData = await client.upgrades.getUpgrade({ slug });
+          setUpgrade(upgradeData);
 
-        setUpgrade(upgradeData);
-        setComposition(compositionData);
-        setEvents(eventsData);
+          // Get the last entry from timeline (final state)
+          const lastEntry = constantTimeline[constantTimeline.length - 1];
+          
+          // Collect all EIP numbers from the final state with their buckets
+          const eipBucketMap = new Map<number, string>();
+          
+          lastEntry.included.forEach(eip => {
+            const num = parseInt(eip.replace('EIP-', ''));
+            if (!isNaN(num)) eipBucketMap.set(num, 'included');
+          });
+          lastEntry.scheduled.forEach(eip => {
+            const num = parseInt(eip.replace('EIP-', ''));
+            if (!isNaN(num) && !eipBucketMap.has(num)) eipBucketMap.set(num, 'scheduled');
+          });
+          lastEntry.declined.forEach(eip => {
+            const num = parseInt(eip.replace('EIP-', ''));
+            if (!isNaN(num) && !eipBucketMap.has(num)) eipBucketMap.set(num, 'declined');
+          });
+          lastEntry.considered.forEach(eip => {
+            const num = parseInt(eip.replace('EIP-', ''));
+            if (!isNaN(num) && !eipBucketMap.has(num)) eipBucketMap.set(num, 'considered');
+          });
+          lastEntry.proposed.forEach(eip => {
+            const num = parseInt(eip.replace('EIP-', ''));
+            if (!isNaN(num) && !eipBucketMap.has(num)) eipBucketMap.set(num, 'proposed');
+          });
+
+          const allEipNumbers = Array.from(eipBucketMap.keys());
+
+          // Fetch EIP details for all EIPs in batches to avoid too many requests
+          const eipDetailsPromises = allEipNumbers.map(async (eipNum) => {
+            try {
+              const eipData = await client.proposals.getProposal({ repo: 'eip', number: eipNum });
+              return {
+                eip_number: eipNum,
+                title: eipData.title || `EIP-${eipNum}`,
+                status: eipData.status || null,
+                bucket: eipBucketMap.get(eipNum) || null,
+                updated_at: null,
+              };
+            } catch (err) {
+              // Fallback if EIP not found
+              console.warn(`Failed to fetch EIP-${eipNum}:`, err);
+              return {
+                eip_number: eipNum,
+                title: `EIP-${eipNum}`,
+                status: null,
+                bucket: eipBucketMap.get(eipNum) || null,
+                updated_at: null,
+              };
+            }
+          });
+
+          const compositionFromTimeline = await Promise.all(eipDetailsPromises);
+          setComposition(compositionFromTimeline);
+
+          // Convert constant data to match API format (EIP numbers as strings)
+          setTimelineData(constantTimeline.map(item => ({
+            date: item.date,
+            included: item.included.map(eip => eip.replace('EIP-', '')),
+            scheduled: item.scheduled.map(eip => eip.replace('EIP-', '')),
+            declined: item.declined.map(eip => eip.replace('EIP-', '')),
+            considered: item.considered.map(eip => eip.replace('EIP-', '')),
+            proposed: item.proposed.map(eip => eip.replace('EIP-', '')),
+          })));
+        } else {
+          // Fetch from database for other upgrades
+          const [upgradeData, compositionData, timelineDataResult] = await Promise.all([
+            client.upgrades.getUpgrade({ slug }),
+            client.upgrades.getUpgradeCompositionCurrent({ slug }),
+            client.upgrades.getUpgradeTimeline({ slug }),
+          ]);
+
+          setUpgrade(upgradeData);
+          setComposition(compositionData);
+          setTimelineData(timelineDataResult);
+        }
       } catch (err: any) {
         console.error('Failed to fetch upgrade data:', err);
         setError(err.message || 'Failed to load upgrade');
@@ -136,19 +207,6 @@ export default function UpgradePage() {
     );
   }
 
-  // Group composition by bucket
-  const compositionByBucket = composition.reduce((acc, item) => {
-    const bucket = item.bucket || 'unknown';
-    if (!acc[bucket]) {
-      acc[bucket] = [];
-    }
-    acc[bucket].push(item);
-    return acc;
-  }, {} as Record<string, CompositionItem[]>);
-
-  // Bucket order
-  const bucketOrder = ['scheduled', 'proposed', 'considered', 'declined'];
-  const orderedBuckets = bucketOrder.filter(b => compositionByBucket[b]);
 
   return (
     <div className="bg-background relative w-full overflow-hidden min-h-screen">
@@ -162,11 +220,11 @@ export default function UpgradePage() {
       <div className="relative z-10">
         {/* 1. Upgrade Header */}
         <div className="relative w-full bg-background/80 backdrop-blur-xl border-b border-cyan-400/10">
-          <div className="mx-auto max-w-7xl px-4 pt-10 pb-6 sm:px-6 sm:pt-12 sm:pb-8">
+          <div className="mx-auto max-w-7xl px-4 pt-8 pb-4 sm:px-6 sm:pt-10 sm:pb-6">
             <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 space-y-3">
+              <div className="flex-1 space-y-2">
                 {/* Upgrade name */}
-                <h1 className="dec-title text-balance bg-gradient-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-4xl font-semibold tracking-tight text-transparent sm:text-5xl md:text-6xl">
+                <h1 className="dec-title text-balance bg-gradient-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl md:text-5xl">
                   {upgrade.name}
                 </h1>
 
@@ -186,239 +244,235 @@ export default function UpgradePage() {
                   )}
                 </div>
               </div>
+              
+              {/* Info Toggle Button */}
+              <motion.button
+                onClick={() => setIsInfoOpen(!isInfoOpen)}
+                className={cn(
+                  "group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                  "border-slate-700/40 bg-slate-900/50 backdrop-blur-sm",
+                  "transition-all hover:border-cyan-400/50 hover:bg-cyan-400/15",
+                  "hover:shadow-lg hover:shadow-cyan-500/10"
+                )}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                title={isInfoOpen ? 'Hide info' : 'Show info'}
+              >
+                <Info className={cn(
+                  "h-4 w-4 transition-all",
+                  "text-slate-400 group-hover:text-cyan-300",
+                  isInfoOpen && "text-cyan-300"
+                )} />
+              </motion.button>
             </div>
+
+            {/* Collapsible Info Panel */}
+            <AnimatePresence>
+              {isInfoOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="overflow-hidden mt-4"
+                >
+                  <div className="rounded-lg border border-slate-700/50 bg-gradient-to-br from-slate-900/60 via-slate-900/50 to-slate-900/60 backdrop-blur-sm p-4 sm:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-400/20 shrink-0">
+                          <Package className="h-4 w-4 text-cyan-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-white mb-1">
+                            EIP Composition
+                          </h3>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            Track which EIPs are included, scheduled, or under consideration for this upgrade
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-400/20 shrink-0">
+                          <Clock className="h-4 w-4 text-cyan-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-white mb-1">
+                            Timeline
+                          </h3>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            Visualize how EIP statuses change over time as the upgrade progresses
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-400/20 shrink-0">
+                          <Activity className="h-4 w-4 text-cyan-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-white mb-1">
+                            Activity
+                          </h3>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            View all changes, additions, and removals of EIPs in this upgrade
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-16">
-          {/* 2. Upgrade Snapshot - Simplified for now */}
-          {upgrade.created_at && (
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-8">
+          {/* Timeline Chart Section */}
+          {timelineData.length > 0 && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="rounded-xl border border-slate-700/40 bg-slate-950/50 p-6 mb-12 mt-8"
+              transition={{ duration: 0.4 }}
+              className="mt-4 mb-6"
             >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Created</p>
-                  <p className="text-sm text-white">
-                    {new Date(upgrade.created_at).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Total EIPs</p>
-                  <p className="text-sm text-white font-semibold">{composition.length}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Buckets</p>
-                  <p className="text-sm text-white">{orderedBuckets.length}</p>
-                </div>
-              </div>
+              <UpgradeTimelineChart data={timelineData} upgradeName={upgrade.name} />
             </motion.div>
           )}
 
-          {/* 3. Upgrade Timeline - Major milestones (simplified for now) */}
-          {upgrade.created_at && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="rounded-xl border border-slate-700/40 bg-slate-950/50 p-6 mb-12"
-            >
-              <div className="flex items-center gap-2 mb-6">
-                <Clock className="h-5 w-5 text-cyan-400" />
-                <h3 className="text-sm font-bold uppercase tracking-wider text-cyan-300">Timeline</h3>
-              </div>
-              <div className="space-y-3">
-                {upgrade.created_at && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <div className="flex-shrink-0 w-32 text-slate-400">
-                      {new Date(upgrade.created_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                    </div>
-                    <div className="text-slate-300">Upgrade created</div>
-                  </div>
-                )}
-                {upgrade.meta_eip && (
-                  <div className="flex items-center gap-3 text-sm">
-                    <div className="flex-shrink-0 w-32 text-slate-400">—</div>
-                    <div className="text-slate-300">
-                      Meta EIP{' '}
-                      <Link 
-                        href={`/eip/${upgrade.meta_eip}`}
-                        className="text-cyan-300 hover:text-cyan-200 transition-colors font-mono"
-                      >
-                        EIP-{upgrade.meta_eip}
-                      </Link>
-                      {' '}created
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* 4. EIP Composition (Core Section) */}
+          {/* About This Upgrade Section */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="rounded-xl border border-slate-700/40 bg-slate-950/50 p-8 mb-12"
+            transition={{ duration: 0.4, delay: 0.05 }}
+            className="rounded-lg border border-slate-700/40 bg-slate-950/50 p-4 sm:p-5 mb-6"
           >
-            <div className="flex items-center gap-2 mb-8">
-              <Package className="h-5 w-5 text-cyan-400" />
-              <h3 className="text-sm font-bold uppercase tracking-wider text-cyan-300">EIP Composition</h3>
+            <div className="flex items-center gap-2 mb-3">
+              <h2 className="text-lg font-bold text-white">About {upgrade.name}</h2>
             </div>
-
-            {orderedBuckets.length === 0 ? (
-              <p className="text-slate-400 text-sm">No EIPs in this upgrade yet.</p>
-            ) : (
-              <div className="space-y-8">
-                {orderedBuckets.map((bucket) => {
-                  const items = compositionByBucket[bucket];
-                  const bucketColor = bucketColors[bucket] || bucketColors['scheduled'];
-                  
-                  return (
-                    <div key={bucket}>
-                      {/* Bucket header */}
-                      <div className="flex items-center gap-3 mb-4">
-                        <h4 className={cn(
-                          "text-lg font-semibold",
-                          bucketColor.text
-                        )}>
-                          {formatBucket(bucket)} for Inclusion ({items.length})
-                        </h4>
-                        <div className={cn(
-                          "h-px flex-1",
-                          bucketColor.border.replace('border-', 'bg-').replace('/30', '/20')
-                        )} />
-                      </div>
-
-                      {/* EIP rows */}
-                      <div className="space-y-2">
-                        {items.map((item) => {
-                          const statusColor = statusColors[item.status || ''] || statusColors['Draft'];
-                          
-                          return (
-                            <Link
-                              key={item.eip_number}
-                              href={`/eip/${item.eip_number}`}
-                              className="block rounded-lg border border-slate-700/30 bg-slate-900/30 p-4 hover:bg-slate-900/50 hover:border-cyan-400/30 transition-all group"
-                            >
-                              <div className="flex items-center justify-between gap-4">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-3 mb-2">
-                                    <span className="text-sm font-mono text-cyan-300 group-hover:text-cyan-200 transition-colors">
-                                      EIP-{item.eip_number}
-                                    </span>
-                                    {item.status && (
-                                      <span className={cn(
-                                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                                        statusColor.bg,
-                                        statusColor.text
-                                      )}>
-                                        {item.status}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-sm text-white truncate">{item.title}</p>
-                                  {item.updated_at && (
-                                    <p className="text-xs text-slate-400 mt-1">
-                                      Updated {new Date(item.updated_at).toLocaleDateString('en-US', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        year: 'numeric'
-                                      })}
-                                    </p>
-                                  )}
-                                </div>
-                                <ArrowRight className="h-4 w-4 text-slate-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" />
-                              </div>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+            {slug === 'pectra' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Ethereum developers are moving toward the next major network upgrade, Prague and Electra,
+                collectively known as{' '}
+                <Link href="/eip/7600" className="text-cyan-300 hover:text-cyan-200 underline">
+                  Pectra
+                </Link>
+                . This upgrade will involve significant changes to the{' '}
+                <a
+                  href="https://www.youtube.com/watch?v=nJ57mkttCH0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-cyan-200 underline"
+                >
+                  Execution and Consensus layers
+                </a>{' '}
+                on the mainnet. Due to the complexity of testing and scope involving 11{' '}
+                <a
+                  href="https://www.youtube.com/watch?v=AyidVR6X6J8"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-cyan-200 underline"
+                >
+                  Ethereum Improvement Proposals (EIPs)
+                </a>
+                , some EIPs were deferred to{' '}
+                <Link href="/upgrade/fusaka" className="text-cyan-300 hover:text-cyan-200 underline">
+                  Fusaka
+                </Link>
+                . Testing is ongoing on{' '}
+                <a
+                  href="https://notes.ethereum.org/@ethpandaops/pectra-devnet-6"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-cyan-200 underline"
+                >
+                  Devnet 6
+                </a>
+                .
+              </p>
+            ) : slug === 'fusaka' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                <Link href="/upgrade/fusaka" className="text-cyan-300 hover:text-cyan-200 underline">
+                  Fusaka
+                </Link>{' '}
+                follows the Pectra upgrade, focusing on scaling and efficiency. Its headlining feature is{' '}
+                <Link href="/eip/7594" className="text-cyan-300 hover:text-cyan-200 underline">
+                  PeerDAS
+                </Link>{' '}
+                (Peer Data Availability Sampling), enabling significant blob throughput scaling. Fusaka also raises the L1 gas limit to 60M and introduces "Blob Parameter Only" (BPO) forks to safely scale blob capacity. Scheduled for Mainnet activation at slot{' '}
+                <span className="font-semibold text-white">13,164,544</span> (Dec 3, 2025), it includes optimizations for L1 performance and UX improvements.
+              </p>
+            ) : slug === 'hegota' ? (
+              <div className="space-y-3">
+                <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-300">
+                  Early Planning Stage
+                </span>
+                <p className="text-sm leading-relaxed text-slate-300">
+                  <Link href="/eip/8081" className="text-cyan-300 hover:text-cyan-200 underline font-semibold">
+                    Hegotá
+                  </Link>{' '}
+                  is in early planning. The headliner proposal window will open soon. Check back for updates as the upgrade planning process begins.
+                </p>
+                <p className="text-xs leading-relaxed text-slate-400">
+                  Future network upgrade currently in early planning stages. Named after the combination of{' '}
+                  <span className="font-semibold">"Heze"</span> (consensus layer upgrade, named after a star) and{' '}
+                  <span className="font-semibold">"Bogotá"</span> (execution layer upgrade, named after a Devcon location).
+                </p>
               </div>
+            ) : (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Ethereum developers are now preparing for the next major network upgrade, known as{' '}
+                <Link href="/eip/7773" className="text-cyan-300 hover:text-cyan-200 underline">
+                  Glamsterdam
+                </Link>
+                . This upgrade will introduce key changes to both the{' '}
+                <a
+                  href="https://www.youtube.com/watch?v=nJ57mkttCH0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-cyan-200 underline"
+                >
+                  Execution and Consensus layers
+                </a>{' '}
+                on mainnet. The name combines{' '}
+                <span className="font-semibold text-white">Amsterdam</span> (execution layer, from the previous Devconnect location) and{' '}
+                <span className="font-semibold text-white">Gloas</span> (consensus layer, named after a star), highlighting its focus on both core protocol areas. The headliner feature for Glamsterdam is still being decided, with several{' '}
+                <a
+                  href="https://github.com/ethereum/EIPs/pulls?q=is%3Apr+is%3Aopen+milestone%3A%22Glamsterdam%22"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-300 hover:text-cyan-200 underline"
+                >
+                  Ethereum Improvement Proposals (EIPs)
+                </a>{' '}
+                under review and active community discussions ongoing.
+              </p>
             )}
           </motion.div>
 
-          {/* 5. Upgrade Activity (Event Feed) */}
-          {events.length > 0 && (
+          {/* Blog Carousel Section */}
+          {blogPosts.length > 0 && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="rounded-xl border border-slate-700/40 bg-slate-950/50 p-6 mb-12"
+              transition={{ duration: 0.4, delay: 0.1 }}
+              className="mb-6"
             >
-              <div className="flex items-center gap-2 mb-6">
-                <Activity className="h-5 w-5 text-violet-400" />
-                <h3 className="text-sm font-bold uppercase tracking-wider text-violet-300">All Activity</h3>
-              </div>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {events.map((event, index) => (
-                  <div key={index} className="flex items-start gap-3 text-sm py-2 border-b border-slate-700/20 last:border-0">
-                    <div className="flex-shrink-0 w-28 text-slate-400 text-xs">
-                      {event.commit_date ? (
-                        new Date(event.commit_date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })
-                      ) : (
-                        'Unknown'
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      {event.eip_number ? (
-                        <span>
-                          <Link 
-                            href={`/eip/${event.eip_number}`}
-                            className="text-cyan-300 hover:text-cyan-200 transition-colors font-mono"
-                          >
-                            EIP-{event.eip_number}
-                          </Link>
-                          {' '}
-                          <span className="text-slate-300">
-                            {formatEventType(event.event_type)} to {formatBucket(event.bucket)}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-300">
-                          {formatEventType(event.event_type)}
-                        </span>
-                      )}
-                    </div>
-                    {event.commit_sha && (
-                      <a
-                        href={`https://github.com/ethereum/EIPs/commit/${event.commit_sha}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-shrink-0"
-                      >
-                        <Github className="h-4 w-4 text-slate-500 hover:text-slate-300 transition-colors" />
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <UpgradeBlogCarousel posts={blogPosts} upgradeName={upgrade.name} />
             </motion.div>
           )}
 
-          {/* 6. About This Upgrade - Placeholder for future content */}
-          {/* This would come from upgrade.description_markdown when available */}
-
-          {/* 7. Related Resources - Optional, hide if empty */}
+          {/* EIPs Showcase Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.15 }}
+            className="rounded-lg border border-slate-700/40 bg-slate-950/50 p-4 sm:p-5 mb-6"
+          >
+            <UpgradeEIPsShowcase
+              upgradeName={upgrade.name}
+              composition={composition}
+              upgradeColor="#06B6D4"
+            />
+          </motion.div>
         </div>
       </div>
     </div>

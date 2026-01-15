@@ -7,6 +7,7 @@ import { ZoomableTimeline } from '@/app/upgrade/_components/zoomable-timeline';
 import { UpgradeStatsCards } from '@/app/upgrade/_components/upgrade-stats-cards';
 import { CollapsibleHeader } from '@/app/upgrade/_components/collapsible-header';
 import { NetworkUpgradesChart } from '@/app/upgrade/_components/network-upgrades-chart';
+import { HorizontalUpgradeTimeline } from '@/app/upgrade/_components/horizontal-upgrade-timeline';
 import { client } from '@/lib/orpc';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -86,14 +87,10 @@ export default function UpgradePage() {
       {/* Collapsible Header */}
       <CollapsibleHeader />
 
-
-        
       <SectionSeparator />
-      
 
       {/* Stats & Flowchart Section */}
       <section className="relative w-full bg-slate-950/30">
-      <div className='pb-5'>  </div>
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Left: Stats Cards */}
@@ -158,69 +155,68 @@ export default function UpgradePage() {
           sectionId="network-upgrades-chart"
           className="bg-slate-950/30"
         />
-        <div className="container mx-auto max-w-7xl px-1 sm:px-2 lg:px-3 pb-3">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
           <NetworkUpgradesChart />
         </div>
       </section>
 
       <SectionSeparator />
 
-      {/* Upgrades List Section */}
-      {upgrades.length > 0 && (
-        <>
-          <section className="relative w-full bg-slate-950/30">
-            <PageHeader
-              title="All Network Upgrades"
-              description="Browse individual upgrade details, EIP composition, and governance history"
-              sectionId="upgrades"
-              className="bg-slate-950/30"
-            />
-            <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {upgrades.map((upgrade, index) => (
-                  <motion.div
-                    key={upgrade.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, delay: index * 0.05 }}
-                  >
-                    <Link href={`/upgrade/${upgrade.slug}`}>
-                      <div
-                        className={cn(
-                          "group relative p-6 rounded-xl border border-cyan-400/20",
-                          "bg-gradient-to-br from-slate-900/80 to-slate-950/80 backdrop-blur-sm",
-                          "hover:border-cyan-400/40 hover:shadow-xl hover:shadow-cyan-500/10",
-                          "transition-all duration-200 cursor-pointer"
-                        )}
-                      >
-                        <div className="flex items-start justify-between mb-4">
-                          <h3 className="text-xl font-bold text-white group-hover:text-cyan-300 transition-colors">
-                            {upgrade.name}
-                          </h3>
-                          <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
-                        </div>
-                        {upgrade.meta_eip && (
-                          <p className="text-sm text-slate-400 mb-3">
-                            Meta EIP: {upgrade.meta_eip}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-4 text-xs text-slate-500">
-                          <span>{upgrade.stats.totalEIPs} EIPs</span>
-                          {upgrade.created_at && (
-                            <span>
-                              {new Date(upgrade.created_at).getFullYear()}
-                            </span>
-                          )}
-                        </div>
+      {/* Upgrades List / Roadmap Section */}
+      <section className="relative w-full bg-slate-950/30">
+        <PageHeader
+          title="Network Upgrade Roadmap"
+          description="High‑level view of recent and upcoming coordinated Ethereum network upgrades."
+          sectionId="upgrades"
+          className="bg-slate-950/30"
+        />
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
+          <div className="mb-4">
+            <HorizontalUpgradeTimeline />
+          </div>
+
+          {upgrades.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {upgrades.map((upgrade, index) => (
+                <motion.div
+                  key={upgrade.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.05 }}
+                  whileHover={{ y: -2 }}
+                >
+                  <Link href={`/upgrade/${upgrade.slug}`}>
+                    <div
+                      className={cn(
+                        'group relative cursor-pointer rounded-lg border border-cyan-400/20 bg-gradient-to-br from-slate-900/80 to-slate-950/80 p-4 backdrop-blur-sm',
+                        'hover:border-cyan-400/40 hover:shadow-lg hover:shadow-cyan-500/10 transition-all duration-200',
+                      )}
+                    >
+                      <div className="mb-2 flex items-start justify-between">
+                        <h3 className="text-base font-semibold text-white transition-colors group-hover:text-cyan-300">
+                          {upgrade.name}
+                        </h3>
+                        <ArrowRight className="h-3.5 w-3.5 text-slate-400 transition-all group-hover:translate-x-1 group-hover:text-cyan-400 flex-shrink-0 mt-0.5" />
                       </div>
-                    </Link>
-                  </motion.div>
-                ))}
-              </div>
+                      {upgrade.meta_eip && (
+                        <p className="mb-2 text-xs text-slate-400">
+                          Meta EIP: {upgrade.meta_eip}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <span>{upgrade.stats.totalEIPs} EIPs</span>
+                        {upgrade.created_at && (
+                          <span>{new Date(upgrade.created_at).getFullYear()}</span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                </motion.div>
+              ))}
             </div>
-          </section>
-        </>
-      )}
+          )}
+        </div>
+      </section>
     </div>
   );
 }

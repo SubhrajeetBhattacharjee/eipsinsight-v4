@@ -223,4 +223,141 @@ export const upgradesProcedures = {
         commit_sha: event.commit_sha || null,
       }));
     }),
+
+  // Get timeline data for upgrade (grouped by date with bucket statuses)
+  getUpgradeTimeline: os
+    .$context<Ctx>()
+    .input(z.object({
+      slug: z.string(),
+    }))
+    .handler(async ({ context, input }) => {
+      await checkAPIToken(context.headers);
+
+      const upgrade = await prisma.upgrades.findUnique({
+        where: { slug: input.slug },
+      });
+
+      if (!upgrade) {
+        throw new ORPCError('NOT_FOUND', {
+          message: `Upgrade ${input.slug} not found`,
+        });
+      }
+
+      // Get all events for this upgrade, ordered by date
+      const events = await prisma.upgrade_composition_events.findMany({
+        where: { upgrade_id: upgrade.id },
+        orderBy: { commit_date: 'asc' },
+        select: {
+          commit_date: true,
+          eip_number: true,
+          bucket: true,
+          event_type: true,
+        },
+      });
+
+      // Get current composition to use as final state
+      const currentComposition = await prisma.upgrade_composition_current.findMany({
+        where: { upgrade_id: upgrade.id },
+        select: { eip_number: true, bucket: true },
+      });
+
+      // Build timeline by processing events chronologically
+      // Track state changes per date
+      const dateChanges = new Map<string, Array<{ eipNumber: number; bucket: string | null; type: string }>>();
+      const allDates = new Set<string>();
+
+      // Process events to track changes per date
+      events.forEach((event) => {
+        if (!event.commit_date || !event.eip_number) return;
+
+        const dateStr = new Date(event.commit_date).toISOString().split('T')[0];
+        allDates.add(dateStr);
+
+        if (!dateChanges.has(dateStr)) {
+          dateChanges.set(dateStr, []);
+        }
+
+        dateChanges.get(dateStr)!.push({
+          eipNumber: event.eip_number,
+          bucket: event.bucket ? event.bucket.toLowerCase() : null,
+          type: event.event_type || 'added',
+        });
+      });
+
+      // Add current composition as final state
+      const today = new Date().toISOString().split('T')[0];
+      allDates.add(today);
+
+      // Build cumulative state (each date includes all EIPs up to that point)
+      const sortedDates = Array.from(allDates).sort();
+      const result: Array<{
+        date: string;
+        included: string[];
+        scheduled: string[];
+        declined: string[];
+        considered: string[];
+        proposed: string[];
+      }> = [];
+
+      const cumulativeState = new Map<number, string>();
+
+      sortedDates.forEach((date) => {
+        // Apply changes for this date
+        const changes = dateChanges.get(date) || [];
+
+        changes.forEach((change) => {
+          if (change.type === 'added' || change.type === 'moved') {
+            if (change.bucket) {
+              cumulativeState.set(change.eipNumber, change.bucket);
+            }
+          } else if (change.type === 'removed') {
+            cumulativeState.delete(change.eipNumber);
+          }
+        });
+
+        // For the final date (today), use current composition
+        if (date === today) {
+          currentComposition.forEach((comp) => {
+            if (comp.bucket) {
+              cumulativeState.set(comp.eip_number, comp.bucket.toLowerCase());
+            }
+          });
+        }
+
+        // Group EIPs by bucket
+        const dayData = {
+          date,
+          included: [] as number[],
+          scheduled: [] as number[],
+          considered: [] as number[],
+          declined: [] as number[],
+          proposed: [] as number[],
+        };
+
+        cumulativeState.forEach((bucket, eipNumber) => {
+          if (bucket === 'included') {
+            dayData.included.push(eipNumber);
+          } else if (bucket === 'scheduled') {
+            dayData.scheduled.push(eipNumber);
+          } else if (bucket === 'considered') {
+            dayData.considered.push(eipNumber);
+          } else if (bucket === 'declined') {
+            dayData.declined.push(eipNumber);
+          } else if (bucket === 'proposed') {
+            dayData.proposed.push(eipNumber);
+          }
+        });
+
+        result.push({
+          date,
+          included: dayData.included.map(String),
+          scheduled: dayData.scheduled.map(String),
+          considered: dayData.considered.map(String),
+          declined: dayData.declined.map(String),
+          proposed: dayData.proposed.map(String),
+        });
+      });
+
+      return result;
+    }),
 }
