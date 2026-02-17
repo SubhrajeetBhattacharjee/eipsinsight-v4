@@ -2463,4 +2463,48 @@ export const analyticsProcedures = {
 
       return getEIPHeroKPIsCached(input.repo ?? null, periodStart);
     }),
+
+  // ——— Monthly Editor Leaderboard (PRs updated this month with editor governance) ———
+  getMonthlyEditorLeaderboard: os
+    .$context<Ctx>()
+    .input(z.object({ limit: z.number().optional().default(10) }))
+    .handler(async ({ context, input }) => {
+      await checkAPIToken(context.headers);
+      const now = new Date();
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const nextMonth = now.getMonth() === 11
+        ? `${now.getFullYear() + 1}-01-01`
+        : `${now.getFullYear()}-${String(now.getMonth() + 2).padStart(2, '0')}-01`;
+
+      const allEditors = Array.from(new Set(
+        Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()
+      ));
+
+      const results = await prisma.$queryRawUnsafe<Array<{
+        actor: string;
+        prs_touched: bigint;
+      }>>(
+        `
+        SELECT
+          pg.last_actor AS actor,
+          COUNT(DISTINCT pr.pr_number)::bigint AS prs_touched
+        FROM pull_requests pr
+        JOIN pr_governance_state pg
+          ON pg.pr_number = pr.pr_number AND pg.repository_id = pr.repository_id
+        WHERE pg.last_actor = ANY($1::text[])
+          AND pr.updated_at >= $2::date
+          AND pr.updated_at < $3::date
+        GROUP BY pg.last_actor
+        ORDER BY prs_touched DESC
+        LIMIT $4
+        `,
+        allEditors, monthStart, nextMonth, input.limit
+      );
+
+      return results.map((r) => ({
+        actor: r.actor,
+        totalActions: Number(r.prs_touched),
+        prsTouched: Number(r.prs_touched),
+      }));
+    }),
 }

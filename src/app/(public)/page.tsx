@@ -186,7 +186,7 @@ export default function EIPsHomePage() {
   const [repoDist, setRepoDist] = useState<Array<{ repo: string; proposals: number; activePRs: number; finals: number }> | null>(null);
   const [decisionVelocity, setDecisionVelocity] = useState<{ transitions: Array<{ from: string; to: string; medianDays: number | null; count: number }>; draftToFinalMedian: number } | null>(null);
   const [monthlyDelta, setMonthlyDelta] = useState<Array<{ status: string; count: number }> | null>(null);
-  const [editors, setEditors] = useState<Array<{ actor: string; totalReviews: number; prsTouched: number; medianResponseDays: number | null }> | null>(null);
+  const [editors, setEditors] = useState<Array<{ actor: string; totalActions: number; prsTouched: number }> | null>(null);
   const [reviewers, setReviewers] = useState<Array<{ actor: string; totalReviews: number; prsTouched: number; medianResponseDays: number | null }> | null>(null);
   const [govStates, setGovStates] = useState<Array<{ state: string; label: string; count: number; medianWaitDays: number | null }> | null>(null);
 
@@ -237,8 +237,6 @@ export default function EIPsHomePage() {
   useEffect(() => {
     (async () => {
       try {
-        const _now = new Date();
-        const monthFrom = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-01`;
         const [rcRes, upRes, lfRes, rdRes, dvRes, mdRes, edRes, rvRes, gsRes] = await Promise.all([
           client.analytics.getRecentChanges({ limit: 12 }),
           client.standards.getUpgradeImpact(),
@@ -246,8 +244,8 @@ export default function EIPsHomePage() {
           client.standards.getRepoDistribution(),
           client.analytics.getDecisionVelocity({}),
           client.standards.getMonthlyDelta(),
-          client.analytics.getEditorsLeaderboard({ limit: 10, from: monthFrom }),
-          client.analytics.getReviewersLeaderboard({ limit: 5, from: monthFrom }),
+          client.analytics.getMonthlyEditorLeaderboard({ limit: 10 }),
+          client.analytics.getReviewersLeaderboard({ limit: 5 }),
           client.analytics.getPRGovernanceWaitingState({}),
         ]);
         setRecentChanges(rcRes as typeof recentChanges);
@@ -884,10 +882,7 @@ export default function EIPsHomePage() {
                         <span className="absolute -top-2 -right-2 text-lg">🥈</span>
                       </div>
                       <span className="mt-2 max-w-full truncate text-sm font-semibold text-slate-200">{editors[1].actor}</span>
-                      <span className="text-xs tabular-nums text-slate-500">{editors[1].prsTouched} PRs</span>
-                      {editors[1].medianResponseDays != null && (
-                        <span className="text-[10px] tabular-nums text-slate-600">~{editors[1].medianResponseDays}d avg</span>
-                      )}
+                      <span className="text-xs tabular-nums text-slate-500">{editors[1].prsTouched} PRs handled</span>
                     </div>
                     {/* #1 Gold - Champion */}
                     <div className="flex flex-col items-center rounded-xl border border-amber-500/30 bg-linear-to-b from-amber-500/10 via-amber-500/5 to-transparent p-3 pt-4 -mt-3">
@@ -898,10 +893,7 @@ export default function EIPsHomePage() {
                         <span className="absolute -top-3 -right-3 text-2xl">🥇</span>
                       </div>
                       <span className="mt-2 max-w-full truncate text-sm font-bold text-white">{editors[0].actor}</span>
-                      <span className="text-xs tabular-nums font-medium text-amber-300">{editors[0].prsTouched} PRs reviewed</span>
-                      {editors[0].medianResponseDays != null && (
-                        <span className="text-[10px] tabular-nums text-amber-400/60">~{editors[0].medianResponseDays}d avg response</span>
-                      )}
+                      <span className="text-xs tabular-nums font-medium text-amber-300">{editors[0].prsTouched} PRs handled</span>
                     </div>
                     {/* #3 Bronze */}
                     <div className="flex flex-col items-center rounded-xl border border-orange-500/20 bg-slate-800/30 p-3 pt-5">
@@ -912,10 +904,7 @@ export default function EIPsHomePage() {
                         <span className="absolute -top-2 -right-2 text-lg">🥉</span>
                       </div>
                       <span className="mt-2 max-w-full truncate text-sm font-semibold text-slate-200">{editors[2].actor}</span>
-                      <span className="text-xs tabular-nums text-slate-500">{editors[2].prsTouched} PRs</span>
-                      {editors[2].medianResponseDays != null && (
-                        <span className="text-[10px] tabular-nums text-slate-600">~{editors[2].medianResponseDays}d avg</span>
-                      )}
+                      <span className="text-xs tabular-nums text-slate-500">{editors[2].prsTouched} PRs handled</span>
                     </div>
                   </div>
                 )}
@@ -931,9 +920,6 @@ export default function EIPsHomePage() {
                           className="h-8 w-8 rounded-full border border-slate-700/50 object-cover" />
                         <span className="flex-1 truncate text-sm font-medium text-slate-300">{ed.actor}</span>
                         <span className="text-xs tabular-nums text-slate-500">{ed.prsTouched} PRs</span>
-                        {ed.medianResponseDays != null && (
-                          <span className="text-xs tabular-nums text-slate-600">~{ed.medianResponseDays}d</span>
-                        )}
                       </div>
                     ))}
                   </div>
