@@ -22,6 +22,7 @@ import {
   Search,
   Wrench,
   LayoutDashboard,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 import { useSidebarStore } from "@/stores/sidebarStore";
@@ -227,6 +228,11 @@ const sidebarSections: SidebarSection[] = [
         icon: Settings,
         href: "/settings",
       },
+      {
+        title: "Admin",
+        icon: Shield,
+        href: "/admin/blogs",
+      },
     ],
   },
 ];
@@ -307,6 +313,7 @@ function getActiveItemTitle(pathname: string): string | null {
   if (pathname.startsWith("/resources")) return "Resources";
   if (pathname.startsWith("/profile")) return "Profile";
   if (pathname.startsWith("/settings")) return "Settings";
+  if (pathname.startsWith("/admin")) return "Admin";
   return null;
 }
 

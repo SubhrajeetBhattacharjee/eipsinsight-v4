@@ -5,6 +5,20 @@ import { uploadImageToCloudinary } from '@/lib/cloudinary'
 import * as z from 'zod'
 
 export const accountProcedures = {
+  getMe: os
+    .$context<Ctx>()
+    .handler(async ({ context }) => {
+      const session = await auth.api.getSession({ headers: context.headers })
+      if (!session?.user) {
+        throw new ORPCError('UNAUTHORIZED')
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { id: true, name: true, email: true, image: true, role: true },
+      })
+      if (!user) throw new ORPCError('UNAUTHORIZED')
+      return user
+    }),
   update: os
     .$context<Ctx>()
     .input(

@@ -23,6 +23,7 @@ model User {
   apiTokens           ApiToken[]
   sessions            Session[]
   preferences         user_preferences?
+  blogs               Blog[]
 
   @@map("user")
 }
@@ -109,6 +110,24 @@ model ApiToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("api_token")
+}
+
+model Blog {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  excerpt     String?
+  content     String   @db.Text
+  coverImage  String?
+  published   Boolean  @default(false)
+  authorId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([published])
+  @@index([slug])
+  @@map("blog")
 }
 
 model eip_category_events {
