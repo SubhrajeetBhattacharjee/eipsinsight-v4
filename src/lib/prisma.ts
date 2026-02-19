@@ -29,7 +29,7 @@ const pool =
   new Pool({
     connectionString,
     ssl: sslConfig,
-    max: 3, // Aiven hobby tier ~20 slots; keep very low to avoid 53300
+    max: 1, // Aiven hobby ~20 slots; serverless spawns many instances—use 1 per instance
     min: 0, // Don't hold idle connections
     idleTimeoutMillis: 20000, // Release idle connections sooner
     connectionTimeoutMillis: 10000,
