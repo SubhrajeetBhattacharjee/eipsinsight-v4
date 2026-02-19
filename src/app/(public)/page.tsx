@@ -10,8 +10,11 @@ import {
   Download, Loader2, FileText, Layers, Info, Code, FileCode2,
   Cpu, Network, Boxes, Eye, Bell, CheckCircle2, Zap, Pause,
   XCircle, GitCommitHorizontal, LayoutGrid, BarChart3,
-  Activity, TrendingUp, Timer, Users, ArrowRight, ChevronDown,
+  Activity, TrendingUp, Timer, Users, ArrowRight,
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { EIPsPageHeader } from './_components/eips-page-header';
+import HomeFAQs from './_components/home-faqs';
 
 // ────────────────────────────────────────────────────────────────
 // TYPES & CONSTANTS
@@ -66,29 +69,12 @@ const FUNNEL_COLORS: Record<string, string> = {
   Draft: 'bg-slate-500', Review: 'bg-amber-500', 'Last Call': 'bg-orange-500', Final: 'bg-emerald-500',
   Stagnant: 'bg-gray-600', Withdrawn: 'bg-red-500',
 };
+// Hex colors for pie chart (matches ui-reference status colors)
+const STATUS_PIE_COLORS: Record<string, string> = {
+  Draft: '#64748b', Review: '#f59e0b', 'Last Call': '#f97316', Final: '#10b981',
+  Living: '#22d3ee', Stagnant: '#6b7280', Withdrawn: '#ef4444',
+};
 const MATRIX_STATUS_ORDER = ['Draft', 'Review', 'Last Call', 'Final', 'Living', 'Stagnant', 'Withdrawn'];
-
-const STATUS_TERMS = [
-  { name: 'Idea', description: 'An idea that is pre-draft. This is not tracked within the EIP Repository.', color: 'text-purple-300' },
-  { name: 'Draft', description: 'The first formally tracked stage of an EIP in development.', color: 'text-slate-300' },
-  { name: 'Review', description: 'An EIP Author marks an EIP as ready for and requesting Peer Review.', color: 'text-amber-300' },
-  { name: 'Last Call', description: 'The final review window for an EIP before moving to Final, typically 14 days.', color: 'text-orange-300' },
-  { name: 'Final', description: 'The final standard. Should only be updated to correct errata.', color: 'text-emerald-300' },
-  { name: 'Stagnant', description: 'Inactive for 6 months or greater. Can be resurrected by moving back to Draft.', color: 'text-gray-400' },
-  { name: 'Withdrawn', description: 'Author has withdrawn the proposal. This state has finality.', color: 'text-red-300' },
-  { name: 'Living', description: 'Continually updated and not designed to reach finality. Notably EIP-1.', color: 'text-cyan-300' },
-];
-
-const TYPE_INFO = [
-  { name: 'Standards Track', description: 'Changes affecting most or all Ethereum implementations.', subcategories: [
-    { name: 'Core', description: 'Consensus fork improvements and core dev discussions.' },
-    { name: 'Networking', description: 'devp2p and Light Ethereum Subprotocol.' },
-    { name: 'Interface', description: 'Client API/RPC specifications and standards.' },
-    { name: 'ERC', description: 'Application-level standards: tokens, registries, account abstraction.' },
-  ] },
-  { name: 'Meta', description: 'Process proposals for areas other than the protocol itself.' },
-  { name: 'Informational', description: 'General guidelines or information for the community.' },
-];
 
 const EIP_SORT_FIELDS = ['number', 'title', 'status', 'type', 'category', 'created_at', 'updated_at', 'days_in_status', 'linked_prs'] as const;
 const RIP_SORT_FIELDS = ['number', 'title', 'status', 'author', 'created_at', 'last_commit', 'commits'] as const;
@@ -132,8 +118,8 @@ function SectionCard({ title, icon, children, className = '' }: { title: string;
   return (
     <div className={`rounded-xl border border-slate-800/80 bg-slate-900/50 ${className}`}>
       <div className="flex items-center gap-2 border-b border-slate-800/60 px-4 py-2.5">
-        <span className="text-slate-500">{icon}</span>
-        <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase">{title}</span>
+        <span className="text-cyan-400/50">{icon}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</span>
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -339,6 +325,15 @@ export default function EIPsHomePage() {
     setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }, [isRipMode]);
 
+  const navigateToRipsTable = useCallback(() => {
+    setViewMode('type');
+    setActiveTab('rips');
+    setOverlayFilters(null);
+    setPage(1);
+    setColumnSearch({});
+    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }, []);
+
   const clearOverlay = useCallback(() => { setOverlayFilters(null); setPage(1); }, []);
 
   const handleExportCSV = useCallback(async () => {
@@ -382,8 +377,6 @@ export default function EIPsHomePage() {
     status: s, count: statusDist.find((d) => d.status === s)?.count || 0,
   })).filter((s) => s.count > 0), [statusDist]);
 
-  const funnelMax = useMemo(() => lifecycleFunnel ? Math.max(...lifecycleFunnel.map(f => f.count), 1) : 1, [lifecycleFunnel]);
-
   const pageRange = useMemo(() => {
     const range: number[] = []; const max = 5;
     let start = Math.max(1, page - Math.floor(max / 2));
@@ -410,21 +403,20 @@ export default function EIPsHomePage() {
 
   // ─── Render ────────────────────────────────────────────────
   return (
-    <div className="relative min-h-screen">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(34,211,238,0.04),transparent_60%)]" />
+    <div className="bg-background relative min-h-screen w-full overflow-hidden">
+      {/* Subtle background accent */}
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(52,211,153,0.05),_transparent_70%)]" />
+      </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="relative z-10 w-full max-w-full px-4 py-8 sm:px-6 lg:px-8 xl:px-12">
 
         {/* ─── 1. Header ──────────────────────────────────── */}
-        <motion.header initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
-          <h1 className="dec-title bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
-            Ethereum Improvement Proposals
-          </h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
-            Real-time governance analytics — proposal lifecycle, upgrade progress, and editorial workload.
-            Powered by <span className="text-slate-300">EIPsInsight</span>.
-          </p>
-        </motion.header>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
+          <EIPsPageHeader />
+        </motion.div>
+
+        <hr className="border-slate-800/50 mb-6" />
 
         {/* ─── 2. Global Metrics Bar ──────────────────────── */}
         <motion.div id="kpi-overview" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.05 }}
@@ -544,30 +536,61 @@ export default function EIPsHomePage() {
           </div>
         </motion.div>
 
+        <hr className="border-slate-800/50 mb-6" />
+
         {/* ─── 6. Lifecycle Funnel + Repo Distribution ─────── */}
         <motion.div id="intelligence" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.14 }}
           className="mb-6 grid gap-4 lg:grid-cols-2">
-          {/* Lifecycle Funnel */}
+          {/* Lifecycle Funnel (Pie Chart) */}
           <SectionCard title="Lifecycle Funnel" icon={<ArrowRight className="h-3.5 w-3.5" />}>
-            {!lifecycleFunnel ? <SkeletonPulse rows={4} /> : (
-              <div className="space-y-2">
-                {lifecycleFunnel.filter(f => f.count > 0).map((f) => (
-                  <button key={f.status} onClick={() => navigateToTable({ status: [f.status] }, f.status)}
-                    className="group flex w-full items-center gap-3 rounded-lg transition-colors hover:bg-slate-800/20">
-                    <span className="w-16 shrink-0 text-right text-xs text-slate-500">{f.status}</span>
-                    <div className="relative flex-1 h-6 rounded bg-slate-800/50 overflow-hidden">
-                      <div
-                        className={`h-full rounded transition-all duration-500 ${FUNNEL_COLORS[f.status] || 'bg-slate-600'}`}
-                        style={{ width: `${Math.max((f.count / funnelMax) * 100, 2)}%` }}
-                      />
-                      <span className="absolute inset-y-0 left-2 flex items-center text-xs font-medium tabular-nums text-white/80">
-                        {f.count.toLocaleString()}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+            {!lifecycleFunnel ? <SkeletonPulse rows={4} /> : (() => {
+              const pieData = lifecycleFunnel.filter(f => f.count > 0).map(f => ({
+                name: f.status,
+                value: f.count,
+                fill: STATUS_PIE_COLORS[f.status] || '#64748b',
+              }));
+              return (
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                <div className="w-full max-w-[200px] h-[180px] shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        dataKey="value"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={70}
+                        paddingAngle={1}
+                        strokeWidth={0}
+                        onClick={(e) => navigateToTable({ status: [e.name] }, e.name)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {pieData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.fill} fillOpacity={0.9} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  {lifecycleFunnel.filter(f => f.count > 0).map((f) => {
+                    const total = lifecycleFunnel!.reduce((s, x) => s + x.count, 0);
+                    const pct = total > 0 ? (f.count / total * 100).toFixed(1) : '0';
+                    return (
+                      <button key={f.status} onClick={() => navigateToTable({ status: [f.status] }, f.status)}
+                        className="group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-800/20">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT_COLORS[f.status] || 'bg-slate-500'}`} />
+                        <span className="flex-1 text-left text-xs text-slate-400 group-hover:text-slate-200">{f.status}</span>
+                        <span className="text-xs tabular-nums font-medium text-slate-300">{f.count.toLocaleString()}</span>
+                        <span className="text-[10px] tabular-nums text-slate-600">{pct}%</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+              );
+            })()}
           </SectionCard>
 
           {/* Repo Distribution */}
@@ -584,18 +607,21 @@ export default function EIPsHomePage() {
                 </thead>
                 <tbody>
                   {repoDist.map((r) => {
+                    const isRIPs = r.repo.toLowerCase().includes('rips');
                     const isERCs = r.repo.toLowerCase().includes('ercs');
                     const catFilter = isERCs ? { category: ['ERC'] } : {};
+                    const navProposals = () => isRIPs ? navigateToRipsTable() : navigateToTable(catFilter, `${r.repo} proposals`);
+                    const navFinals = () => isRIPs ? navigateToRipsTable() : navigateToTable({ ...catFilter, status: ['Final'] }, `${r.repo} Final`);
                     return (
                       <tr key={r.repo} className="border-t border-slate-800/30">
                         <td className="py-1.5 font-medium text-slate-300">{r.repo}</td>
                         <td className="py-1.5 text-right">
-                          <button onClick={() => navigateToTable(catFilter, `${r.repo} proposals`)}
+                          <button onClick={navProposals}
                             className="tabular-nums text-slate-400 underline decoration-slate-700 underline-offset-2 hover:text-white">{r.proposals.toLocaleString()}</button>
                         </td>
                         <td className="py-1.5 text-right tabular-nums text-amber-300">{r.activePRs.toLocaleString()}</td>
                         <td className="py-1.5 text-right">
-                          <button onClick={() => navigateToTable({ ...catFilter, status: ['Final'] }, `${r.repo} Final`)}
+                          <button onClick={navFinals}
                             className="tabular-nums text-emerald-400 underline decoration-slate-700 underline-offset-2 hover:text-white">{r.finals.toLocaleString()}</button>
                         </td>
                       </tr>
@@ -606,6 +632,8 @@ export default function EIPsHomePage() {
             )}
           </SectionCard>
         </motion.div>
+
+        <hr className="border-slate-800/50 mb-6" />
 
         {/* ─── 7. Governance Efficiency + Monthly Delta ────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.16 }}
@@ -655,6 +683,8 @@ export default function EIPsHomePage() {
             )}
           </SectionCard>
         </motion.div>
+
+        <hr className="border-slate-800/50 mb-6" />
 
         {/* ─── 8. View Switch + Tabs ──────────────────────── */}
         <motion.div id="proposals-table" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.18 }} className="mb-4">
@@ -792,6 +822,8 @@ export default function EIPsHomePage() {
             </div>
           )}
         </motion.div>
+
+        <hr className="border-slate-800/50 my-8" />
 
         {/* ─── Recent Governance Activity ──────────────────── */}
         <motion.div id="governance-activity" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.22 }} className="mb-6">
@@ -945,60 +977,12 @@ export default function EIPsHomePage() {
           </SectionCard>
         </motion.div>
 
-        {/* ─── 11. Reference Panels ───────────────────────── */}
-        <div className="space-y-4 mb-8">
-          <RefPanel title="EIP Types">
-            {TYPE_INFO.map((type) => (
-              <div key={type.name} className="mb-3 last:mb-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-200">{type.name}</span>
-                  <span className="text-xs tabular-nums text-slate-500">({type.name === 'Standards Track' ? standardsTrackTotal.toLocaleString() : getCatCount(type.name).toLocaleString()})</span>
-                </div>
-                <p className="mt-0.5 text-sm text-slate-500">{type.description}</p>
-                {'subcategories' in type && type.subcategories && (
-                  <div className="mt-2 ml-4 space-y-1">
-                    {type.subcategories.map((sub) => (
-                      <div key={sub.name} className="text-sm">
-                        <span className="font-medium text-slate-400">{sub.name}</span>
-                        <span className="ml-1 text-xs tabular-nums text-slate-600">({getCatCount(sub.name)})</span>
-                        <span className="ml-1.5 text-slate-500">— {sub.description}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </RefPanel>
+        <hr className="border-slate-800/50 my-8" />
 
-          <RefPanel title="Status Terms">
-            <div className="space-y-2">
-              {STATUS_TERMS.map((term) => (
-                <div key={term.name} className="flex gap-2.5">
-                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${STATUS_DOT_COLORS[term.name] || 'bg-purple-400'}`} />
-                  <div>
-                    <span className={`text-sm font-semibold ${term.color}`}>{term.name}</span>
-                    {term.name !== 'Idea' && <span className="ml-1.5 text-xs tabular-nums text-slate-600">({(statusDist.find((d) => d.status === term.name)?.count || 0).toLocaleString()})</span>}
-                    <p className="text-sm text-slate-500">{term.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </RefPanel>
-
-          <RefPanel title="Contributing">
-            <p className="text-sm leading-relaxed text-slate-400">
-              First review <Link href="/eip/1" className="text-cyan-400 hover:text-cyan-300">EIP-1</Link>.
-              Then clone the repository and add your EIP. There is a{' '}
-              <a href="https://github.com/ethereum/EIPs/blob/master/eip-template.md?plain=1" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">template EIP here</a>.
-              Then submit a Pull Request to Ethereum&apos;s{' '}
-              <a href="https://github.com/ethereum/EIPs" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">EIPs repository</a>.
-            </p>
-          </RefPanel>
-        </div>
-
-        <p className="text-center text-xs text-slate-600">
-          Data sourced from live GitHub repositories and indexed by EIPsInsight.
-        </p>
+        {/* ─── 11. Reference (EIP Types, Status Terms, Contributing) ── */}
+        <motion.section initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.22 }}>
+          <HomeFAQs categoryBreakdown={categoryBreakdown} statusDist={statusDist} />
+        </motion.section>
       </div>
     </div>
   );
@@ -1024,18 +1008,6 @@ function PgBtn({ children, onClick, disabled, active }: { children: React.ReactN
       className={`flex h-7 min-w-[28px] items-center justify-center rounded-md text-xs font-medium transition-colors ${
         active ? 'border border-cyan-500/30 bg-cyan-500/10 text-cyan-300' : 'text-slate-500 hover:text-white disabled:opacity-20'
       }`}>{children}</button>
-  );
-}
-
-function RefPanel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <details className="group rounded-xl border border-slate-800/80 bg-slate-900/30">
-      <summary className="flex cursor-pointer items-center justify-between px-5 py-3 text-sm font-semibold text-slate-200 hover:text-white">
-        {title}
-        <ChevronDown className="h-4 w-4 text-slate-600 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="border-t border-slate-800/60 px-5 py-4">{children}</div>
-    </details>
   );
 }
 

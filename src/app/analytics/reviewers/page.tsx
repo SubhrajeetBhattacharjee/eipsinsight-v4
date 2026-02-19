@@ -63,6 +63,9 @@ function getTimeWindow(timeRange: string): { from: string | undefined; to: strin
 
   let from: Date;
   switch (timeRange) {
+    case "this_month":
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
     case "7d":
       from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       break;
@@ -76,7 +79,7 @@ function getTimeWindow(timeRange: string): { from: string | undefined; to: strin
       from = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
       break;
     default:
-      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
   }
   
   return { from: from.toISOString().split('T')[0], to };

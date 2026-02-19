@@ -17,20 +17,50 @@ Design tokens, typography, colors, and component patterns used across the app.
 
 **Decorative titles:** Add `.dec-title` for Libre Baskerville with `line-height: 1.15`.
 
-### Font Sizes
+### Typography Hierarchy
+
+Sizes should flow hierarchically. Avoid jumps that look odd (e.g. `text-4xl` next to `text-[10px]`). Use consistent steps.
+
+| Level | Class | Size | Usage |
+|-------|-------|------|-------|
+| **H1 — Main page title** | `dec-title bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl` | 30–36px | Page headers (EIPs, Dashboard) |
+| **H1 subtitle** | `mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400` | 14px | One line under main title |
+| **H2 — Section title** | `dec-title text-xl font-semibold tracking-tight text-slate-200 sm:text-2xl` | 20–24px | Section headers (Protocol Bento, etc.) |
+| **H2 subtitle** | `mt-0.5 text-sm text-slate-500` | 14px | Section descriptions |
+| **H3 — Card/subsection** | `text-xs font-semibold uppercase tracking-wider text-slate-500` | 12px | DashCard titles, table headers |
+| **Body** | `text-sm` | 14px | Default body copy |
+| **Small** | `text-xs` | 12px | Labels, badges |
+| **Tiny** | `text-[10px]`–`text-[11px]` | 10–11px | Table cells, micro labels |
+
+### Main Header Pattern
+
+Use this pattern for primary page headers (e.g. `/`, `/dashboard`):
+
+```tsx
+<motion.header initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
+  <h1 className="dec-title bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
+    Page Title
+  </h1>
+  <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
+    Description. Powered by <span className="text-slate-300">EIPsInsight</span>.
+  </p>
+</motion.header>
+```
+
+### Font Sizes (Reference)
 
 | Class | Size | Usage |
 |-------|------|-------|
-| `text-[10px]` | 10px | Tiny labels |
+| `text-[10px]` | 10px | Tiny labels, table cells |
 | `text-[11px]` | 11px | Section labels, uppercase |
 | `text-xs` | 12px | Small labels, badges |
 | `text-sm` | 14px | Body, nav items, buttons |
 | `text-base` | 16px | Default body, search input |
 | `text-lg` | 18px | Subheadings |
-| `text-xl` | 20px | Headings |
-| `text-2xl` | 24px | Page titles |
-| `text-3xl` | 30px | Hero titles |
-| `text-4xl` | 36px | Large display |
+| `text-xl` | 20px | Section headings |
+| `text-2xl` | 24px | Large section titles |
+| `text-3xl` | 30px | Page titles |
+| `text-4xl` | 36px | Hero / large display |
 
 ### Font Weights
 
@@ -68,16 +98,16 @@ from-emerald-300 via-cyan-300 to-emerald-300         — Text gradient (bg-clip-
 
 ### Status / Semantic Colors
 
-| Status | Tailwind | Usage |
-|--------|----------|-------|
-| Draft | `slate-500/20`, `text-slate-300` | EIP status |
-| Review | `amber-500/20`, `text-amber-300` | EIP status |
-| Last Call | `orange-500/20`, `text-orange-300` | EIP status |
-| Final | `emerald-500/20`, `text-emerald-300` | EIP status |
-| Living | `cyan-500/20`, `text-cyan-300` | EIP status |
-| Stagnant | `gray-500/20`, `text-gray-400` | EIP status |
-| Withdrawn | `red-500/20`, `text-red-300` | EIP status |
-| Error / Destructive | `rose-400`, `red-500` | Errors, delete |
+| Status | Tailwind | Hex (charts) | Usage |
+|--------|----------|--------------|-------|
+| Draft | `slate-500/20`, `text-slate-300` | `#64748b` | EIP status |
+| Review | `amber-500/20`, `text-amber-300` | `#f59e0b` | EIP status |
+| Last Call | `orange-500/20`, `text-orange-300` | `#f97316` | EIP status |
+| Final | `emerald-500/20`, `text-emerald-300` | `#10b981` | EIP status |
+| Living | `cyan-500/20`, `text-cyan-300` | `#22d3ee` | EIP status |
+| Stagnant | `gray-500/20`, `text-gray-400` | `#6b7280` | EIP status |
+| Withdrawn | `red-500/20`, `text-red-300` | `#ef4444` | EIP status |
+| Error / Destructive | `rose-400`, `red-500` | — | Errors, delete |
 
 ### Persona Colors
 
@@ -157,6 +187,32 @@ from-emerald-300 via-cyan-300 to-emerald-300         — Text gradient (bg-clip-
 
 - **Default:** `rounded-xl border border-slate-700/50 bg-slate-900/40`
 - **Hover:** `hover:border-cyan-500/40`
+
+### Collapsible Page Header
+
+For pages with an expandable info panel (e.g. `/`, `/upgrade`):
+
+- H1: `dec-title bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl`
+- Subtitle: `mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400`
+- Info button: rounded-lg border, cyan hover
+- Collapsible panel: `rounded-lg border border-slate-700/50 bg-gradient-to-br from-slate-900/60 via-slate-900/50 to-slate-900/60`
+- Info card titles: `text-sm font-semibold text-slate-200`
+- Info card descriptions: `text-sm text-slate-400`
+
+### FAQs Section
+
+- Layout: two-column (sticky sidebar + accordion) on md+
+- H2: `dec-title text-xl font-semibold tracking-tight text-slate-200 sm:text-2xl`
+- H2 subtitle: `mt-0.5 text-sm text-slate-500`
+- Accordion items: `rounded-lg border border-slate-700/50 bg-gradient-to-br from-slate-900/60 via-slate-900/50 to-slate-900/60`
+- Trigger: icon + question in `text-base font-semibold text-slate-200`
+- Content: `text-sm leading-relaxed text-slate-300`
+
+### Lifecycle Funnel (Pie Chart)
+
+- Use pie chart with status colors from Status / Semantic Colors (hex column)
+- Donut style: `innerRadius={40}` `outerRadius={70}`
+- Legend: status dot + name + count + percentage
 
 ### Scrollbar
 

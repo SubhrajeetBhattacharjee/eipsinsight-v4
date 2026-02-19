@@ -1,4 +1,4 @@
-import { os, ORPCError, type Ctx } from './types'
+import { os, type Ctx } from './types'
 import { auth } from '@/lib/auth'
 
 export const authProcedures = {
@@ -6,9 +6,6 @@ export const authProcedures = {
     .$context<Ctx>()
     .handler(async ({ context }) => {
       const result = await auth.api.getSession({ headers: context.headers })
-      if (!result?.user) {
-        throw new ORPCError('UNAUTHORIZED')
-      }
-      return result
+      return result ?? null
     }),
 }

@@ -109,12 +109,14 @@ export default function RootLayout({
         <Providers>
           <SidebarProvider>
             <AppSidebar />
-            <SidebarInset className="h-screen overflow-y-auto">
-              <div className="sticky top-0 z-40">
+            <SidebarInset className="flex h-screen flex-col overflow-hidden">
+              <div className="shrink-0">
                 <Navbar />
               </div>
-              <main className="flex-1">{children}</main>
-              <Footer />
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <main className="min-h-full">{children}</main>
+                <Footer />
+              </div>
             </SidebarInset>
           </SidebarProvider>
           <Toaster />

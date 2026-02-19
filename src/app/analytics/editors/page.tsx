@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useAnalytics } from "../layout";
 import { client } from "@/lib/orpc";
-import { Loader2, UserCheck, Clock, FileText } from "lucide-react";
+import { Loader2, UserCheck, Clock, FileText, Download } from "lucide-react";
 import {
   ChartContainer,
   ChartTooltip,
@@ -73,6 +73,9 @@ function getTimeWindow(timeRange: string): { from: string | undefined; to: strin
 
   let from: Date;
   switch (timeRange) {
+    case "this_month":
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
     case "7d":
       from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       break;
@@ -86,7 +89,7 @@ function getTimeWindow(timeRange: string): { from: string | undefined; to: strin
       from = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
       break;
     default:
-      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
   }
   
   return { from: from.toISOString().split('T')[0], to };
@@ -103,12 +106,35 @@ export default function EditorsAnalyticsPage() {
 
   const repoParam = repoFilter === "all" ? undefined : repoFilter;
   const { from, to } = getTimeWindow(timeRange);
+  const [exporting, setExporting] = useState(false);
+
+  const downloadLeaderboardCSV = useCallback(async () => {
+    setExporting(true);
+    try {
+      const { csv, filename } = await client.analytics.getEditorsLeaderboardExport({
+        repo: repoParam,
+        from,
+        to,
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [repoParam, from, to]);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const months = timeRange === "7d" ? 3 : timeRange === "30d" ? 6 : timeRange === "90d" ? 12 : 24;
+        const months = timeRange === "7d" ? 3 : timeRange === "this_month" || timeRange === "30d" ? 6 : timeRange === "90d" ? 12 : 24;
         
         const [leaderboardData, trendData, categoryData, repoData] = await Promise.all([
           client.analytics.getEditorsLeaderboard({
@@ -251,7 +277,27 @@ export default function EditorsAnalyticsPage() {
 
       {/* Editor Leaderboard */}
       <div className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-6 backdrop-blur-sm">
-        <h2 className="mb-4 text-xl font-semibold text-white">Editor Leaderboard</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-white">
+            Editor Leaderboard
+            {timeRange === "this_month" && (
+              <span className="ml-2 text-sm font-normal text-slate-500">
+                — {new Date().toLocaleString('en', { month: 'long', year: 'numeric' })}
+              </span>
+            )}
+            {timeRange === "all" && (
+              <span className="ml-2 text-sm font-normal text-slate-500">— All-Time Contributions</span>
+            )}
+          </h2>
+          <button
+            onClick={downloadLeaderboardCSV}
+            disabled={exporting || leaderboard.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-600/50 bg-slate-800/30 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800/50 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Download CSV
+          </button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>

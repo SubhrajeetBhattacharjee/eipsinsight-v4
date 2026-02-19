@@ -6,7 +6,7 @@ import { Download, Calendar, Database } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-type TimeRange = "7d" | "30d" | "90d" | "1y" | "all" | "custom";
+type TimeRange = "7d" | "30d" | "90d" | "1y" | "this_month" | "all" | "custom";
 type RepoFilter = "all" | "eips" | "ercs" | "rips";
 type SnapshotMode = "live" | "snapshot";
 
@@ -31,6 +31,7 @@ export function useAnalytics() {
 }
 
 const timeRangeOptions: { value: TimeRange; label: string }[] = [
+  { value: "this_month", label: "This month" },
   { value: "7d", label: "Last 7 days" },
   { value: "30d", label: "Last 30 days" },
   { value: "90d", label: "Last 90 days" },
@@ -65,7 +66,7 @@ function AnalyticsLayoutInner({
   const searchParams = useSearchParams();
 
   const [timeRange, setTimeRangeState] = useState<TimeRange>(
-    (searchParams.get("range") as TimeRange) || "30d"
+    (searchParams.get("range") as TimeRange) || "this_month"
   );
   const [repoFilter, setRepoFilterState] = useState<RepoFilter>(
     (searchParams.get("repo") as RepoFilter) || "all"
@@ -77,7 +78,7 @@ function AnalyticsLayoutInner({
   const setTimeRange = (range: TimeRange) => {
     setTimeRangeState(range);
     const params = new URLSearchParams(searchParams.toString());
-    if (range === "30d") {
+    if (range === "this_month") {
       params.delete("range");
     } else {
       params.set("range", range);

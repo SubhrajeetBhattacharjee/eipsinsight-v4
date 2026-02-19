@@ -20,10 +20,10 @@ import { PersonaNudgeBanner } from '@/components/persona-nudge-banner';
 export default function EIPsInsightHero() {
   return (
     <div className="bg-background relative w-full overflow-hidden">
-      {/* Background gradient */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(52,211,153,0.18),_transparent_60%)]" />
-        <div className="absolute top-0 left-1/2 -z-10 h-[900px] w-[900px] -translate-x-1/2 rounded-full bg-cyan-300/10 blur-3xl" />
+      {/* Subtle background accent */}
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(52,211,153,0.06),_transparent_70%)]" />
+        <div className="absolute top-0 left-1/2 h-[500px] w-[600px] -translate-x-1/2 rounded-full bg-cyan-400/[0.03] blur-3xl" />
       </div>
 
       <div className="relative z-10 container mx-auto px-4 py-24 sm:px-6 lg:px-8 lg:py-32">

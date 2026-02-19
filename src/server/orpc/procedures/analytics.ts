@@ -2177,6 +2177,69 @@ export const analyticsProcedures = {
       );
     }),
 
+  getEditorsLeaderboardExport: os
+    .$context<Ctx>()
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
+    .handler(async ({ context, input }) => {
+      await checkAPIToken(context.headers);
+
+      const [summary, details] = await Promise.all([
+        getEditorsLeaderboardCached(input.repo ?? null, input.from ?? null, input.to ?? null, 500),
+        prisma.$queryRawUnsafe<Array<{
+          actor: string;
+          pr_number: number;
+          repo_name: string | null;
+          occurred_at: string;
+          action_type: string;
+        }>>(
+          `
+          SELECT ca.actor, ca.pr_number, r.name AS repo_name,
+                 TO_CHAR(ca.occurred_at, 'YYYY-MM-DD HH24:MI:SS') AS occurred_at,
+                 ca.action_type
+          FROM contributor_activity ca
+          LEFT JOIN repositories r ON r.id = ca.repository_id
+          WHERE UPPER(COALESCE(ca.role, '')) = 'EDITOR'
+            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+            AND ($2::text IS NULL OR ca.occurred_at >= $2::timestamp)
+            AND ($3::text IS NULL OR ca.occurred_at <= $3::timestamp)
+          ORDER BY ca.actor, ca.occurred_at ASC
+          `,
+          input.repo ?? null,
+          input.from ?? null,
+          input.to ?? null
+        ),
+      ]);
+
+      const escape = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+
+      const summaryRows = [
+        'Rank,Editor,Total Reviews,PRs Touched,Median Response (days)',
+        ...summary.map((r, i) =>
+          [i + 1, r.actor, r.totalReviews, r.prsTouched, r.medianResponseDays ?? ''].map(escape).join(',')
+        ),
+      ];
+
+      const detailRows = [
+        '',
+        'Editor,PR Number,Repository,Occurred At,Action Type',
+        ...details.map((r) =>
+          [r.actor, r.pr_number, r.repo_name ?? '', r.occurred_at, r.action_type].map(escape).join(',')
+        ),
+      ];
+
+      const csv = [...summaryRows, ...detailRows].join('\n');
+      const monthLabel = input.from
+        ? `${input.from.slice(0, 7)}`
+        : new Date().toISOString().slice(0, 7);
+      const filename = `editors-leaderboard-${monthLabel}.csv`;
+
+      return { csv, filename };
+    }),
+
   getReviewersLeaderboard: os
     .$context<Ctx>()
     .input(z.object({
@@ -2464,7 +2527,9 @@ export const analyticsProcedures = {
       return getEIPHeroKPIsCached(input.repo ?? null, periodStart);
     }),
 
-  // ——— Monthly Editor Leaderboard (PRs updated this month with editor governance) ———
+  // ——— Monthly Editor Leaderboard ———
+  // PRs where an official editor was last_actor (governance state) AND the PR was updated this month.
+  // Conservative metric: only counts PRs that had governance-state-changing editor action this month.
   getMonthlyEditorLeaderboard: os
     .$context<Ctx>()
     .input(z.object({ limit: z.number().optional().default(10) }))
@@ -2485,15 +2550,11 @@ export const analyticsProcedures = {
         prs_touched: bigint;
       }>>(
         `
-        SELECT
-          pg.last_actor AS actor,
-          COUNT(DISTINCT pr.pr_number)::bigint AS prs_touched
+        SELECT pg.last_actor AS actor, COUNT(DISTINCT pr.pr_number)::bigint AS prs_touched
         FROM pull_requests pr
-        JOIN pr_governance_state pg
-          ON pg.pr_number = pr.pr_number AND pg.repository_id = pr.repository_id
+        JOIN pr_governance_state pg ON pg.pr_number = pr.pr_number AND pg.repository_id = pr.repository_id
         WHERE pg.last_actor = ANY($1::text[])
-          AND pr.updated_at >= $2::date
-          AND pr.updated_at < $3::date
+          AND pr.updated_at >= $2::date AND pr.updated_at < $3::date
         GROUP BY pg.last_actor
         ORDER BY prs_touched DESC
         LIMIT $4

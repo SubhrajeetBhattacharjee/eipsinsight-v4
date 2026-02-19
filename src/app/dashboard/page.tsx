@@ -9,9 +9,10 @@ import {
   Activity, TrendingUp, FileText, ArrowRight, Users, Timer, Package,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import ProtocolBento from '@/app/landing/_components/protocol-bento';
-import GovernanceOverTime from '@/app/landing/_components/governance-over-time';
-import TrendingProposals from '@/app/landing/_components/trending-proposals';
+import ProtocolBento from '@/app/dashboard/_components/protocol-bento';
+import GovernanceOverTime from '@/app/dashboard/_components/governance-over-time';
+import TrendingProposals from '@/app/dashboard/_components/trending-proposals';
+import { DashboardPageHeader } from '@/app/dashboard/_components/dashboard-page-header';
 
 // ────────────────────────────────────────────────────────────────
 // TYPES
@@ -34,6 +35,14 @@ const STATUS_COLORS: Record<string, string> = {
   Living: 'bg-cyan-500/20 text-cyan-300', Stagnant: 'bg-gray-500/20 text-gray-400',
   Withdrawn: 'bg-red-500/20 text-red-300',
 };
+const STATUS_TEXT_COLORS: Record<string, string> = {
+  Draft: 'text-slate-300', Review: 'text-amber-300', 'Last Call': 'text-orange-300',
+  Final: 'text-emerald-300', Living: 'text-cyan-300', Stagnant: 'text-gray-400', Withdrawn: 'text-red-300',
+};
+const STATUS_DOT_COLORS: Record<string, string> = {
+  Draft: 'bg-slate-400', Review: 'bg-amber-400', 'Last Call': 'bg-orange-400', Final: 'bg-emerald-400',
+  Stagnant: 'bg-gray-500', Withdrawn: 'bg-red-400', Living: 'bg-cyan-400',
+};
 
 // ────────────────────────────────────────────────────────────────
 // CSV HELPER
@@ -55,7 +64,7 @@ function downloadCSV(headers: string[], rows: string[][], filename: string) {
 function CSVBtn({ onClick, label = 'CSV' }: { onClick: () => void; label?: string }) {
   return (
     <button onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/50 bg-slate-800/50 px-2.5 py-1 text-[10px] font-medium text-slate-400 transition-colors hover:border-slate-600 hover:text-slate-200">
+      className="inline-flex items-center gap-1.5 rounded-md border border-slate-700/50 bg-slate-800/40 px-2.5 py-1 text-xs font-medium text-slate-400 transition-colors hover:border-cyan-500/40 hover:text-slate-200">
       <Download className="h-3 w-3" /> {label}
     </button>
   );
@@ -66,15 +75,21 @@ function DashCard({ title, icon, action, children, className = '' }: {
   children: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={cn('rounded-xl border border-slate-800/60 bg-slate-900/40 p-5', className)}>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-cyan-400/70">{icon}</span>
-          <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
+    <div className={cn(
+      'rounded-xl border border-slate-700/60 bg-slate-900/40 overflow-hidden',
+      'shadow-lg shadow-slate-950/30 transition-all hover:border-slate-700/80 hover:shadow-xl hover:shadow-slate-950/40',
+      className
+    )}>
+      <div className="flex items-center justify-between border-b border-slate-700/50 bg-slate-800/20 px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-400/20">
+            <span className="text-cyan-400">{icon}</span>
+          </div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</span>
         </div>
         {action}
       </div>
-      {children}
+      <div className="p-4 bg-slate-900/20">{children}</div>
     </div>
   );
 }
@@ -89,12 +104,16 @@ function Skeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-function StatCard({ label, value, sub, color = 'text-white' }: { label: string; value: number | string; sub?: string; color?: string }) {
+function MetricCell({ label, value, color, dot }: { label: string; value: number | string; color: string; dot?: string }) {
   return (
-    <div className="rounded-lg border border-slate-800/50 bg-slate-800/30 px-4 py-3 text-center">
-      <div className={cn('text-2xl tabular-nums font-bold', color)}>{typeof value === 'number' ? value.toLocaleString() : value}</div>
-      <div className="text-[11px] text-slate-500 font-medium">{label}</div>
-      {sub && <div className="text-[10px] text-slate-600">{sub}</div>}
+    <div className="flex flex-col items-center gap-1.5 px-5 py-4 transition-colors hover:bg-slate-800/30">
+      <span className={cn('text-lg font-bold tabular-nums', color)}>
+        {typeof value === 'number' ? value.toLocaleString() : value}
+      </span>
+      <div className="flex items-center gap-1.5">
+        {dot && <span className={cn('h-2 w-2 shrink-0 rounded-full', dot)} />}
+        <span className="text-[10px] font-semibold tracking-wider text-slate-500 uppercase">{label}</span>
+      </div>
     </div>
   );
 }
@@ -238,47 +257,57 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* ── Header ── */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-        className="border-b border-slate-800/50 bg-slate-900/30 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-6 lg:px-8">
-          <h1 className="dec-title bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
-            Governance Dashboard
-          </h1>
-          <p className="mt-1.5 max-w-2xl text-sm text-slate-400">
-            Comprehensive breakdown of all Ethereum proposals. Every category, status, and combination — with full CSV exports.
-          </p>
-        </div>
-      </motion.div>
+    <div className="relative min-h-screen w-full overflow-hidden bg-background">
+      {/* Subtle background accent (matches public page) */}
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(52,211,153,0.05),transparent_70%)]" />
+      </div>
 
-      <div className="container mx-auto px-4 py-6 lg:px-8 space-y-6">
+      <div className="relative z-10 w-full max-w-full px-4 py-8 sm:px-6 lg:px-8 xl:px-12">
+        {/* ─── 1. Header ──────────────────────────────────── */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
+          <DashboardPageHeader />
+        </motion.div>
 
-        {/* ── KPI Summary ── */}
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.05 }}>
-          {loading ? <Skeleton rows={2} /> : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-9">
-              <StatCard label="Total" value={kpis!.total} color="text-white" />
-              <StatCard label="Draft" value={kpis!.draft} color="text-slate-300" />
-              <StatCard label="Review" value={kpis!.review} color="text-amber-300" />
-              <StatCard label="Last Call" value={kpis!.lastCall} color="text-orange-300" />
-              <StatCard label="Final" value={kpis!.final} color="text-emerald-300" />
-              <StatCard label="Living" value={kpis!.living} color="text-cyan-300" />
-              <StatCard label="Stagnant" value={kpis!.stagnant} color="text-gray-400" />
-              <StatCard label="Withdrawn" value={kpis!.withdrawn} color="text-red-300" />
-              <StatCard label="RIPs" value={ripKpis?.total ?? 0} color="text-violet-300" />
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 2. KPI Overview Bar ─────────────────────────── */}
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.05 }}
+          className="mb-6 overflow-x-auto rounded-xl border border-slate-700/60 bg-slate-900/40 shadow-lg shadow-slate-950/50">
+          {loading ? (
+            <div className="flex items-center gap-6 px-6 py-5">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className="h-10 w-20 animate-pulse rounded-lg bg-slate-800/50" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid min-w-max grid-flow-col divide-x divide-slate-700/50">
+              <MetricCell label="Total" value={kpis!.total} color="text-white" />
+              <MetricCell label="Draft" value={statusDist?.find(s => s.status === 'Draft')?.count ?? 0} color={STATUS_TEXT_COLORS.Draft} dot={STATUS_DOT_COLORS.Draft} />
+              <MetricCell label="Review" value={statusDist?.find(s => s.status === 'Review')?.count ?? 0} color={STATUS_TEXT_COLORS.Review} dot={STATUS_DOT_COLORS.Review} />
+              <MetricCell label="Last Call" value={statusDist?.find(s => s.status === 'Last Call')?.count ?? 0} color={STATUS_TEXT_COLORS['Last Call']} dot={STATUS_DOT_COLORS['Last Call']} />
+              <MetricCell label="Final" value={statusDist?.find(s => s.status === 'Final')?.count ?? 0} color={STATUS_TEXT_COLORS.Final} dot={STATUS_DOT_COLORS.Final} />
+              <MetricCell label="Living" value={statusDist?.find(s => s.status === 'Living')?.count ?? 0} color={STATUS_TEXT_COLORS.Living} dot={STATUS_DOT_COLORS.Living} />
+              <MetricCell label="Stagnant" value={statusDist?.find(s => s.status === 'Stagnant')?.count ?? 0} color={STATUS_TEXT_COLORS.Stagnant} dot={STATUS_DOT_COLORS.Stagnant} />
+              <MetricCell label="Withdrawn" value={statusDist?.find(s => s.status === 'Withdrawn')?.count ?? 0} color={STATUS_TEXT_COLORS.Withdrawn} dot={STATUS_DOT_COLORS.Withdrawn} />
+              <MetricCell label="RIPs" value={ripKpis?.total ?? 0} color="text-violet-300" dot="bg-violet-400" />
             </div>
           )}
         </motion.div>
 
-        {/* ── Protocol Bento (from Landing) ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 3. Protocol Bento ────────────────────────────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.08 }}
-          className="rounded-2xl border border-slate-800/50 overflow-hidden">
+          className="mb-6 overflow-hidden">
           <ProtocolBento />
         </motion.div>
 
-        {/* ── Category × Status Cross-Tab Matrix ── */}
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.1 }}>
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 4. Category × Status Matrix ─────────────────── */}
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.1 }}
+          className="mb-6">
           <DashCard title="Category × Status Matrix" icon={<Layers className="h-4 w-4" />}
             action={<div className="flex gap-2"><CSVBtn onClick={exportCrossTab} label="Matrix CSV" /><CSVBtn onClick={exportFullRaw} label="Full Raw CSV" /></div>}>
             {!matrixData ? <Skeleton rows={8} /> : (
@@ -327,8 +356,11 @@ export default function DashboardPage() {
           </DashCard>
         </motion.div>
 
-        {/* ── Repo × Status Breakdown ── */}
-        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.12 }}>
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 5. Repo × Status Breakdown ───────────────────── */}
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.12 }}
+          className="mb-6">
           <DashCard title="Repository × Status Breakdown" icon={<Package className="h-4 w-4" />}
             action={<CSVBtn onClick={exportRepoBreakdown} label="Repo CSV" />}>
             {!repoBreakdown ? <Skeleton rows={3} /> : (
@@ -361,12 +393,14 @@ export default function DashboardPage() {
                 </table>
               </div>
             )}
-          </DashCard>
+            </DashCard>
         </motion.div>
 
-        {/* ── Category & Status Breakdown Side by Side ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 6. Category & Status Breakdown ───────────────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.14 }}
-          className="grid gap-4 lg:grid-cols-2">
+          className="mb-6 grid gap-4 lg:grid-cols-2">
           {/* By Category */}
           <DashCard title="By Category" icon={<BarChart3 className="h-4 w-4" />}
             action={<CSVBtn onClick={exportCatBreakdown} />}>
@@ -413,9 +447,11 @@ export default function DashboardPage() {
           </DashCard>
         </motion.div>
 
-        {/* ── Lifecycle Funnel + Governance Velocity ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 7. Lifecycle Funnel + Governance Velocity ───── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.16 }}
-          className="grid gap-4 lg:grid-cols-2">
+          className="mb-6 grid gap-4 lg:grid-cols-2">
           {/* Funnel */}
           <DashCard title="Lifecycle Funnel" icon={<ArrowRight className="h-4 w-4" />}>
             {!funnel ? <Skeleton rows={4} /> : (
@@ -462,9 +498,11 @@ export default function DashboardPage() {
           </DashCard>
         </motion.div>
 
-        {/* ── Upgrade Impact + Monthly Delta ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 8. Upgrade Impact + Monthly Delta ─────────────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.18 }}
-          className="grid gap-4 lg:grid-cols-2">
+          className="mb-6 grid gap-4 lg:grid-cols-2">
           {/* Upgrades */}
           <DashCard title="Upgrade Impact" icon={<TrendingUp className="h-4 w-4" />}
             action={<CSVBtn onClick={exportUpgrades} />}>
@@ -506,7 +544,7 @@ export default function DashboardPage() {
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 {monthlyDelta.map(d => (
-                  <div key={d.status} className="rounded-lg bg-slate-800/30 border border-slate-800/50 px-4 py-3">
+                  <div key={d.status} className="rounded-md bg-slate-800/20 border border-slate-800/30 px-3 py-2">
                     <div className="text-2xl tabular-nums font-bold text-slate-200">{d.count}</div>
                     <div className="text-[11px] text-slate-500">{d.status}</div>
                   </div>
@@ -516,15 +554,20 @@ export default function DashboardPage() {
           </DashCard>
         </motion.div>
 
-        {/* ── Governance Over Time (from Landing) ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 9. Governance Over Time ──────────────────────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.2 }}
-          className="rounded-2xl border border-slate-800/50 overflow-hidden">
+          className="mb-6 overflow-hidden">
           <GovernanceOverTime />
         </motion.div>
 
-        {/* ── Repo Distribution (detailed) ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 10. Repo Distribution ────────────────────────── */}
         {repoDist && repoDist.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.22 }}>
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.22 }}
+            className="mb-6">
             <DashCard title="Repository Distribution (Active PRs)" icon={<FileText className="h-4 w-4" />}>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -552,16 +595,20 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ── Trending Proposals (from Landing) ── */}
+        {repoDist && repoDist.length > 0 && <hr className="border-slate-800/50 mb-6" />}
+
+        {/* ─── 11. Trending Proposals ───────────────────────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.24 }}
-          className="rounded-2xl border border-slate-800/50 overflow-hidden">
+          className="mb-6 overflow-hidden">
           <TrendingProposals />
         </motion.div>
 
-        {/* ── Export Hub ── */}
+        <hr className="border-slate-800/50 mb-6" />
+
+        {/* ─── 12. Export Hub ───────────────────────────────── */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.26 }}>
-          <DashCard title="Export Hub" icon={<Download className="h-4 w-4" />}>
-            <p className="mb-4 text-xs text-slate-500">Download any breakdown as CSV. All data from the current snapshot.</p>
+          <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-4 shadow-lg shadow-slate-950/30">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Download any breakdown as CSV</p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               <ExportCard label="Category × Status Matrix" desc="Full cross-tab of all categories and statuses" onClick={exportCrossTab} disabled={!matrixData} />
               <ExportCard label="Full Raw Breakdown" desc="Category, status, repo — every row" onClick={exportFullRaw} disabled={!crossTab} />
@@ -571,7 +618,7 @@ export default function DashboardPage() {
               <ExportCard label="Upgrade Impact" desc="Proposals per upgrade by status" onClick={exportUpgrades} disabled={!upgrades} />
               <ExportCard label={`${monthLabel} Delta`} desc="Status changes this month" onClick={exportMonthlyDelta} disabled={!monthlyDelta} />
             </div>
-          </DashCard>
+          </div>
         </motion.div>
 
       </div>
@@ -583,14 +630,14 @@ function ExportCard({ label, desc, onClick, disabled }: { label: string; desc: s
   return (
     <button onClick={onClick} disabled={disabled}
       className={cn(
-        'flex flex-col items-start rounded-xl border p-4 text-left transition-all',
+        'flex flex-col items-start rounded-xl border p-3 text-left transition-all',
         disabled
-          ? 'border-slate-800/30 bg-slate-900/20 opacity-40 cursor-not-allowed'
-          : 'border-slate-700/50 bg-slate-800/30 hover:border-cyan-500/30 hover:bg-slate-800/50 hover:shadow-[0_0_12px_rgba(34,211,238,0.08)]',
+          ? 'border-slate-800/40 bg-slate-900/20 opacity-50 cursor-not-allowed'
+          : 'border-slate-700/50 bg-slate-900/40 hover:border-cyan-500/40 hover:bg-slate-800/40',
       )}>
-      <Download className={cn('h-4 w-4 mb-2', disabled ? 'text-slate-600' : 'text-cyan-400')} />
-      <span className="text-xs font-semibold text-slate-200">{label}</span>
-      <span className="mt-0.5 text-[10px] text-slate-500 leading-tight">{desc}</span>
+      <Download className={cn('h-3.5 w-3.5 mb-1.5 shrink-0', disabled ? 'text-slate-600' : 'text-cyan-400')} />
+      <span className="text-sm font-semibold text-slate-200">{label}</span>
+      <span className="mt-0.5 text-xs text-slate-500 leading-tight">{desc}</span>
     </button>
   );
 }

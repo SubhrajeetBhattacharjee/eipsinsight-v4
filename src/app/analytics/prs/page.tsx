@@ -101,19 +101,18 @@ interface OpenPRRow {
   linkedEIPs: string | null;
 }
 
-type TimeRange = "7d" | "30d" | "90d" | "1y" | "all" | "custom";
+type TimeRange = "7d" | "30d" | "90d" | "1y" | "this_month" | "all" | "custom";
 
 function getMonthWindow(range: TimeRange): { from?: string; to?: string } {
   const now = new Date();
   const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   if (range === "all") {
-    // No from/to limits -> full history
     return { from: undefined, to: undefined };
   }
 
   const monthsBack =
-    range === "7d" ? 1 : range === "30d" ? 3 : range === "90d" ? 6 : 12;
+    range === "this_month" ? 1 : range === "7d" ? 1 : range === "30d" ? 3 : range === "90d" ? 6 : 12;
 
   const fromDate = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1), 1);
   const from = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(

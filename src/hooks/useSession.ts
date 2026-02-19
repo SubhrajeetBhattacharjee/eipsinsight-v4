@@ -28,7 +28,7 @@ export function useSession() {
     client.auth
       .getSession()
       .then((res) => {
-        if (!cancelled) setData(res as unknown as SessionResponse);
+        if (!cancelled) setData((res as SessionResponse | null) ?? null);
       })
       .catch(() => {
         if (!cancelled) setData(null);

@@ -640,43 +640,91 @@ export const standardsProcedures = {
     }),
 
   // ——— Repo Distribution (for homepage) ———
+  // Aligns with Category Breakdown: ethereum/EIPs = by repo, ethereum/ERCs = by category (ERC), ethereum/RIPs = rips table
   getRepoDistribution: os
     .$context<Ctx>()
     .handler(async ({ context }) => {
       await checkAPIToken(context.headers);
 
-      const results = await prisma.$queryRawUnsafe<Array<{
-        repo_name: string;
+      // ethereum/EIPs: count by repository (EIPs repo only)
+      const eipsResults = await prisma.$queryRawUnsafe<Array<{
         proposals: bigint;
         active_prs: bigint;
         finals: bigint;
       }>>(
         `SELECT
-          r.name AS repo_name,
-          COALESCE(snap.proposals, 0)::bigint AS proposals,
-          COALESCE(prs.active_prs, 0)::bigint AS active_prs,
-          COALESCE(snap.finals, 0)::bigint AS finals
-        FROM repositories r
-        LEFT JOIN (
-          SELECT repository_id,
-            COUNT(*)::bigint AS proposals,
-            COUNT(*) FILTER (WHERE status = 'Final')::bigint AS finals
-          FROM eip_snapshots GROUP BY repository_id
-        ) snap ON snap.repository_id = r.id
-        LEFT JOIN (
-          SELECT repository_id, COUNT(*)::bigint AS active_prs
-          FROM pull_requests WHERE state = 'open' GROUP BY repository_id
-        ) prs ON prs.repository_id = r.id
-        WHERE r.active = true AND COALESCE(snap.proposals, 0) > 0
-        ORDER BY snap.proposals DESC`
+          COUNT(DISTINCT s.eip_id)::bigint AS proposals,
+          (SELECT COUNT(*)::bigint FROM pull_requests pr
+           JOIN repositories r2 ON pr.repository_id = r2.id
+           WHERE pr.state = 'open' AND LOWER(SPLIT_PART(r2.name, '/', 2)) = 'eips')::bigint AS active_prs,
+          COUNT(DISTINCT s.eip_id) FILTER (WHERE s.status = 'Final')::bigint AS finals
+        FROM eip_snapshots s
+        LEFT JOIN repositories r ON s.repository_id = r.id
+        WHERE LOWER(SPLIT_PART(r.name, '/', 2)) = 'eips'
+          AND r.active = true`
       );
 
-      return results.map(r => ({
-        repo: r.repo_name,
-        proposals: Number(r.proposals),
-        activePRs: Number(r.active_prs),
-        finals: Number(r.finals),
-      }));
+      // ethereum/ERCs: count by category (matches Category Breakdown ERC = 577)
+      const ercsResults = await prisma.$queryRawUnsafe<Array<{
+        proposals: bigint;
+        active_prs: bigint;
+        finals: bigint;
+      }>>(
+        `SELECT
+          COUNT(DISTINCT s.eip_id)::bigint AS proposals,
+          (SELECT COUNT(*)::bigint FROM pull_requests pr
+           JOIN repositories r2 ON pr.repository_id = r2.id
+           WHERE pr.state = 'open' AND LOWER(SPLIT_PART(r2.name, '/', 2)) = 'ercs')::bigint AS active_prs,
+          COUNT(DISTINCT s.eip_id) FILTER (WHERE s.status = 'Final')::bigint AS finals
+        FROM eip_snapshots s
+        LEFT JOIN repositories r ON s.repository_id = r.id
+        WHERE s.category = 'ERC' AND r.id IS NOT NULL`
+      );
+
+      // RIPs: from rips table + open PRs from pull_requests (if ethereum/RIPs exists in repositories)
+      const ripResults = await prisma.$queryRawUnsafe<Array<{
+        proposals: bigint;
+        finals: bigint;
+        active_prs: bigint;
+      }>>(
+        `SELECT
+          (SELECT COUNT(*)::bigint FROM rips)::bigint AS proposals,
+          (SELECT COUNT(*) FILTER (WHERE status = 'Final')::bigint FROM rips)::bigint AS finals,
+          (SELECT COUNT(*)::bigint FROM pull_requests pr
+           JOIN repositories r2 ON pr.repository_id = r2.id
+           WHERE pr.state = 'open' AND LOWER(SPLIT_PART(r2.name, '/', 2)) = 'rips')::bigint AS active_prs`
+      );
+
+      const eips = eipsResults[0];
+      const ercs = ercsResults[0];
+      const ripRow = ripResults[0];
+
+      const rows: Array<{ repo: string; proposals: number; activePRs: number; finals: number }> = [
+        {
+          repo: 'ethereum/EIPs',
+          proposals: Number(eips?.proposals ?? 0),
+          activePRs: Number(eips?.active_prs ?? 0),
+          finals: Number(eips?.finals ?? 0),
+        },
+        {
+          repo: 'ethereum/ERCs',
+          proposals: Number(ercs?.proposals ?? 0),
+          activePRs: Number(ercs?.active_prs ?? 0),
+          finals: Number(ercs?.finals ?? 0),
+        },
+      ];
+
+      const ripProposals = Number(ripRow?.proposals ?? 0);
+      if (ripProposals > 0) {
+        rows.push({
+          repo: 'ethereum/RIPs',
+          proposals: ripProposals,
+          activePRs: Number(ripRow?.active_prs ?? 0),
+          finals: Number(ripRow?.finals ?? 0),
+        });
+      }
+
+      return rows;
     }),
 
   // ——— CSV Export (EIPs/ERCs) ———

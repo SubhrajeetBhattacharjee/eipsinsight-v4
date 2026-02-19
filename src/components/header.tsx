@@ -60,7 +60,7 @@ export function PageHeader({
         className
       )}
     >
-      <div className="mx-auto max-w-7xl px-4 pt-10 pb-4 sm:px-6 sm:pt-12 sm:pb-6">
+      <div className="w-full max-w-full px-4 pt-10 pb-4 sm:px-6 sm:pt-12 sm:pb-6 lg:px-8 xl:px-12">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 space-y-1.5">
             {/* Indicator / Eyebrow */}
@@ -111,7 +111,7 @@ export function PageHeader({
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.05 }}
-              className="dec-title text-balance bg-gradient-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl md:text-5xl"
+              className="dec-title text-balance bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl md:text-5xl"
             >
             {title}
             </motion.h1>

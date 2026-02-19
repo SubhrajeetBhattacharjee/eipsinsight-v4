@@ -87,13 +87,13 @@ export default function FAQs() {
               transition={{ duration: 0.5 }}
               className="sticky top-24"
             >
-              <h2 className="dec-title bg-gradient-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
+              <h2 className="dec-title text-xl font-semibold tracking-tight text-slate-200 sm:text-2xl">
                 Frequently Asked Questions
               </h2>
-              <p className="mt-4 text-sm leading-relaxed text-slate-400 sm:text-base">
+              <p className="mt-0.5 text-sm text-slate-500">
                 Get answers to common questions about our platform and services.
               </p>
-              <p className="mt-6 text-sm text-slate-500">
+              <p className="mt-4 text-sm text-slate-500">
                 Can't find what you're looking for? Visit our{' '}
                 <a
                   href="https://github.com/AvarchLLC/EIPsInsight"

@@ -28,7 +28,7 @@ export function CollapsibleHeader() {
 
   return (
     <section className="relative w-full bg-slate-950/30">
-      <div className="mx-auto max-w-7xl px-4 pt-10 pb-4 sm:px-6 sm:pt-12 sm:pb-6">
+      <div className="w-full max-w-full px-4 pt-10 pb-4 sm:px-6 sm:pt-12 sm:pb-6 lg:px-8 xl:px-12">
         <div className="space-y-4">
           {/* Main Header */}
           <div className="flex items-start justify-between gap-4">
@@ -37,7 +37,7 @@ export function CollapsibleHeader() {
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
-                className="dec-title text-balance bg-gradient-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl md:text-5xl"
+                className="dec-title bg-linear-to-br from-emerald-300 via-slate-100 to-cyan-200 bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl"
               >
                 Network Upgrades
               </motion.h1>
@@ -45,7 +45,7 @@ export function CollapsibleHeader() {
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.05 }}
-                className="max-w-3xl text-sm leading-relaxed text-slate-400 sm:text-base"
+                className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400"
               >
                 Explore Ethereum's network upgrade history, from Frontier to the latest proposals
               </motion.p>
@@ -85,7 +85,7 @@ export function CollapsibleHeader() {
                 transition={{ duration: 0.3 }}
                 className="overflow-hidden"
               >
-                <div className="rounded-lg border border-slate-700/50 bg-gradient-to-br from-slate-900/60 via-slate-900/50 to-slate-900/60 backdrop-blur-sm p-6">
+                <div className="rounded-lg border border-slate-700/50 bg-linear-to-br from-slate-900/60 via-slate-900/50 to-slate-900/60 backdrop-blur-sm p-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {infoItems.map((item, index) => {
                       const Icon = item.icon;
@@ -101,10 +101,10 @@ export function CollapsibleHeader() {
                             <Icon className="h-4 w-4 text-cyan-400" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-sm font-semibold text-white mb-1">
+                            <h3 className="text-sm font-semibold text-slate-200 mb-1">
                               {item.title}
                             </h3>
-                            <p className="text-xs text-slate-400 leading-relaxed">
+                            <p className="text-sm text-slate-400 leading-relaxed">
                               {item.description}
                             </p>
                           </div>

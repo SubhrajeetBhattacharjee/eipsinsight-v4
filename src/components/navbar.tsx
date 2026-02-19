@@ -95,7 +95,7 @@ export default function Navbar() {
           : "border-cyan-300/20 bg-slate-950/90 shadow-[0_4px_20px_rgba(6,182,212,0.08)]"
       )}
     >
-      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 xl:px-12">
         <div className="flex h-14 items-center gap-4">
           {/* LEFT: Logo (Desktop) */}
           <Link
