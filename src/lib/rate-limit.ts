@@ -40,7 +40,8 @@ function getRateLimitKey(userId: string, apiTokenId?: string | null) {
 }
 
 async function getCachedUserLimit(userId: string) {
-  const cached = await redis.get(`rl:user-limit:${userId}`);
+  const redisClient = redis();
+  const cached = await redisClient.get(`rl:user-limit:${userId}`);
   if (!cached) return null;
 
   const value = Number(cached);
@@ -48,7 +49,8 @@ async function getCachedUserLimit(userId: string) {
 }
 
 async function setCachedUserLimit(userId: string, limit: number) {
-  await redis.setex(`rl:user-limit:${userId}`, USER_LIMIT_CACHE_TTL_SECONDS, String(limit));
+  const redisClient = redis();
+  await redisClient.setex(`rl:user-limit:${userId}`, USER_LIMIT_CACHE_TTL_SECONDS, String(limit));
 }
 
 async function getUserRequestLimit(userId: string) {
@@ -105,7 +107,8 @@ export async function enforceRateLimit(params: {
   const member = `${now}-${Math.random().toString(36).slice(2, 10)}`;
   const ttlSeconds = Math.ceil(WINDOW_MS / 1000) + 60;
 
-  const [allowedFlag, count] = (await redis.eval(
+  const redisClient = redis();
+  const [allowedFlag, count] = (await redisClient.eval(
     RATE_LIMIT_LUA,
     1,
     key,
@@ -119,7 +122,7 @@ export async function enforceRateLimit(params: {
   const remaining = Math.max(0, limit - count);
   let resetAt = now + WINDOW_MS;
 
-  const oldest = (await redis.zrange(key, 0, 0, "WITHSCORES")) as string[];
+  const oldest = (await redisClient.zrange(key, 0, 0, "WITHSCORES")) as string[];
   if (oldest.length >= 2) {
     const oldestScore = Number(oldest[1]);
     if (Number.isFinite(oldestScore)) {
