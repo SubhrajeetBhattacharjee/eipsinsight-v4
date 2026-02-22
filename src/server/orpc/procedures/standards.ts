@@ -1,6 +1,94 @@
 import { os, checkAPIToken, type Ctx } from './types'
 import { prisma } from '@/lib/prisma'
 import * as z from 'zod'
+import { unstable_cache } from 'next/cache'
+
+const CACHE_REVALIDATE = 300
+
+const getRIPKPIsCached = unstable_cache(
+  async () => {
+    const results = await prisma.$queryRawUnsafe<Array<{
+      total: bigint; active: bigint; recent_commits: bigint;
+      most_active_rip: number | null; most_active_title: string | null; most_active_commits: bigint;
+    }>>(`
+      WITH rip_stats AS (
+        SELECT r.rip_number, r.title, COUNT(rc.id)::bigint AS commit_count
+        FROM rips r LEFT JOIN rip_commits rc ON rc.rip_id = r.id
+        GROUP BY r.rip_number, r.title
+      ),
+      recent AS (
+        SELECT COUNT(*)::bigint AS cnt FROM rip_commits
+        WHERE commit_date >= NOW() - INTERVAL '30 days'
+      )
+      SELECT
+        (SELECT COUNT(*)::bigint FROM rips) AS total,
+        (SELECT COUNT(*)::bigint FROM rips WHERE status NOT IN ('Withdrawn', 'Stagnant') OR status IS NULL) AS active,
+        (SELECT cnt FROM recent) AS recent_commits,
+        (SELECT rip_number FROM rip_stats ORDER BY commit_count DESC LIMIT 1) AS most_active_rip,
+        (SELECT title FROM rip_stats ORDER BY commit_count DESC LIMIT 1) AS most_active_title,
+        (SELECT commit_count FROM rip_stats ORDER BY commit_count DESC LIMIT 1) AS most_active_commits
+    `);
+    const row = results[0];
+    return {
+      total: Number(row?.total ?? 0),
+      active: Number(row?.active ?? 0),
+      recentCommits: Number(row?.recent_commits ?? 0),
+      mostActiveRip: row?.most_active_rip ?? null,
+      mostActiveTitle: row?.most_active_title ?? null,
+      mostActiveCommits: Number(row?.most_active_commits ?? 0),
+    };
+  },
+  ['standards-getRIPKPIs'],
+  { revalidate: CACHE_REVALIDATE }
+);
+
+const getStatusDistributionCached = unstable_cache(
+  async (repo: string | null) => {
+    const results = await prisma.$queryRawUnsafe<Array<{ status: string; repo_short: string; count: bigint }>>(
+      `SELECT s.status, LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short, COUNT(*)::bigint AS count
+       FROM eip_snapshots s LEFT JOIN repositories r ON s.repository_id = r.id
+       WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+       GROUP BY s.status, LOWER(SPLIT_PART(r.name, '/', 2)) ORDER BY count DESC`,
+      repo
+    );
+    return results.map(r => ({ status: r.status, repo: r.repo_short || 'unknown', count: Number(r.count) }));
+  },
+  ['standards-getStatusDistribution'],
+  { revalidate: CACHE_REVALIDATE }
+);
+
+const getCategoryBreakdownCached = unstable_cache(
+  async (repo: string | null) => {
+    const results = await prisma.$queryRawUnsafe<Array<{ category: string; count: bigint }>>(
+      `SELECT
+         CASE WHEN s.category IS NOT NULL AND TRIM(s.category) <> '' THEN s.category
+              WHEN TRIM(COALESCE(s.type, '')) <> '' THEN s.type ELSE 'Other' END AS category,
+         COUNT(*)::bigint AS count
+       FROM eip_snapshots s LEFT JOIN repositories r ON s.repository_id = r.id
+       WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+       GROUP BY 1 ORDER BY count DESC`,
+      repo
+    );
+    return results.map(r => ({ category: r.category, count: Number(r.count) }));
+  },
+  ['standards-getCategoryBreakdown'],
+  { revalidate: CACHE_REVALIDATE }
+);
+
+const getStatusMatrixCached = unstable_cache(
+  async () => {
+    const results = await prisma.$queryRawUnsafe<Array<{ status: string; group_name: string; count: bigint }>>(
+      `SELECT s.status,
+         CASE WHEN s.category = 'ERC' OR LOWER(SPLIT_PART(r.name, '/', 2)) = 'ercs' THEN 'ERCs' ELSE 'EIPs' END AS group_name,
+         COUNT(*)::bigint AS count
+       FROM eip_snapshots s LEFT JOIN repositories r ON s.repository_id = r.id
+       GROUP BY 1, 2 ORDER BY count DESC`
+    );
+    return results.map(r => ({ status: r.status, group: r.group_name, count: Number(r.count) }));
+  },
+  ['standards-getStatusMatrix'],
+  { revalidate: CACHE_REVALIDATE }
+);
 
 const repoFilterSchema = z.object({
   repo: z.enum(['eips', 'ercs', 'rips']).optional(),
@@ -60,87 +148,19 @@ export const standardsProcedures = {
       };
     }),
 
-  // ——— RIP-specific KPIs ———
   getRIPKPIs: os
     .$context<Ctx>()
     .handler(async ({ context }) => {
       await checkAPIToken(context.headers);
-
-      const results = await prisma.$queryRawUnsafe<Array<{
-        total: bigint;
-        active: bigint;
-        recent_commits: bigint;
-        most_active_rip: number | null;
-        most_active_title: string | null;
-        most_active_commits: bigint;
-      }>>(
-        `
-        WITH rip_stats AS (
-          SELECT
-            r.rip_number,
-            r.title,
-            COUNT(rc.id)::bigint AS commit_count
-          FROM rips r
-          LEFT JOIN rip_commits rc ON rc.rip_id = r.id
-          GROUP BY r.rip_number, r.title
-        ),
-        recent AS (
-          SELECT COUNT(*)::bigint AS cnt
-          FROM rip_commits
-          WHERE commit_date >= NOW() - INTERVAL '30 days'
-        )
-        SELECT
-          (SELECT COUNT(*)::bigint FROM rips) AS total,
-          (SELECT COUNT(*)::bigint FROM rips WHERE status NOT IN ('Withdrawn', 'Stagnant') OR status IS NULL) AS active,
-          (SELECT cnt FROM recent) AS recent_commits,
-          (SELECT rip_number FROM rip_stats ORDER BY commit_count DESC LIMIT 1) AS most_active_rip,
-          (SELECT title FROM rip_stats ORDER BY commit_count DESC LIMIT 1) AS most_active_title,
-          (SELECT commit_count FROM rip_stats ORDER BY commit_count DESC LIMIT 1) AS most_active_commits
-      `
-      );
-
-      const row = results[0];
-      return {
-        total: Number(row?.total ?? 0),
-        active: Number(row?.active ?? 0),
-        recentCommits: Number(row?.recent_commits ?? 0),
-        mostActiveRip: row?.most_active_rip ?? null,
-        mostActiveTitle: row?.most_active_title ?? null,
-        mostActiveCommits: Number(row?.most_active_commits ?? 0),
-      };
+      return getRIPKPIsCached();
     }),
 
-  // ——— Status Distribution (stacked by repo) ———
   getStatusDistribution: os
     .$context<Ctx>()
     .input(repoFilterSchema)
     .handler(async ({ context, input }) => {
       await checkAPIToken(context.headers);
-
-      const results = await prisma.$queryRawUnsafe<Array<{
-        status: string;
-        repo_short: string;
-        count: bigint;
-      }>>(
-        `
-        SELECT
-          s.status,
-          LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short,
-          COUNT(*)::bigint AS count
-        FROM eip_snapshots s
-        LEFT JOIN repositories r ON s.repository_id = r.id
-        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-        GROUP BY s.status, LOWER(SPLIT_PART(r.name, '/', 2))
-        ORDER BY count DESC
-      `,
-        input.repo ?? null
-      );
-
-      return results.map(r => ({
-        status: r.status,
-        repo: r.repo_short || 'unknown',
-        count: Number(r.count),
-      }));
+      return getStatusDistributionCached(input.repo ?? null);
     }),
 
   // ——— Trends Over Time (standards created per year, by repo) ———
@@ -178,43 +198,12 @@ export const standardsProcedures = {
       }));
     }),
 
-  // ——— Category Breakdown ———
   getCategoryBreakdown: os
     .$context<Ctx>()
     .input(repoFilterSchema)
     .handler(async ({ context, input }) => {
       await checkAPIToken(context.headers);
-
-      const results = await prisma.$queryRawUnsafe<Array<{
-        category: string;
-        count: bigint;
-      }>>(
-        `
-        SELECT
-          CASE
-            WHEN s.category IS NOT NULL AND TRIM(s.category) <> '' THEN s.category
-            WHEN TRIM(COALESCE(s.type, '')) <> '' THEN s.type
-            ELSE 'Other'
-          END AS category,
-          COUNT(*)::bigint AS count
-        FROM eip_snapshots s
-        LEFT JOIN repositories r ON s.repository_id = r.id
-        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-        GROUP BY
-          CASE
-            WHEN s.category IS NOT NULL AND TRIM(s.category) <> '' THEN s.category
-            WHEN TRIM(COALESCE(s.type, '')) <> '' THEN s.type
-            ELSE 'Other'
-          END
-        ORDER BY count DESC
-      `,
-        input.repo ?? null
-      );
-
-      return results.map(r => ({
-        category: r.category,
-        count: Number(r.count),
-      }));
+      return getCategoryBreakdownCached(input.repo ?? null);
     }),
 
   // ——— Filter Options (for populating multi-selects) ———
@@ -566,35 +555,11 @@ export const standardsProcedures = {
       }));
     }),
 
-  // ——— Status × Group Matrix (for homepage) ———
   getStatusMatrix: os
     .$context<Ctx>()
     .handler(async ({ context }) => {
       await checkAPIToken(context.headers);
-
-      const results = await prisma.$queryRawUnsafe<Array<{
-        status: string;
-        group_name: string;
-        count: bigint;
-      }>>(
-        `SELECT
-          s.status,
-          CASE
-            WHEN s.category = 'ERC' OR LOWER(SPLIT_PART(r.name, '/', 2)) = 'ercs' THEN 'ERCs'
-            ELSE 'EIPs'
-          END AS group_name,
-          COUNT(*)::bigint AS count
-        FROM eip_snapshots s
-        LEFT JOIN repositories r ON s.repository_id = r.id
-        GROUP BY s.status, group_name
-        ORDER BY count DESC`
-      );
-
-      return results.map(r => ({
-        status: r.status,
-        group: r.group_name,
-        count: Number(r.count),
-      }));
+      return getStatusMatrixCached();
     }),
 
   // ——— Upgrade Impact Snapshot (for homepage) ———
