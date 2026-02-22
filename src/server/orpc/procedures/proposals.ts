@@ -69,8 +69,8 @@ export const proposalsProcedures = {
         category: snapshot?.category || null,
         status: snapshot?.status || 'Unknown',
         last_call_deadline: snapshot?.deadline?.toISOString().split('T')[0] || null,
-        discussions_to: null, // TODO: Add discussions_to field to schema
-        requires: [], // TODO: Parse from markdown or add to schema
+        discussions_to: null,
+        requires: [] as number[],
       };
     }),
 
@@ -216,7 +216,7 @@ export const proposalsProcedures = {
       });
     }),
 
-  // E. Markdown Content (placeholder - eip_files may contain this)
+  // E. Markdown Content (fetched from GitHub raw)
   getContent: os
     .$context<Ctx>()
     .input(z.object({
@@ -226,28 +226,42 @@ export const proposalsProcedures = {
     .handler(async ({ context, input }) => {
       await checkAPIToken(context.headers);
 
-      const eip = await prisma.eips.findUnique({
-        where: { eip_number: input.number },
-        include: {
-          eip_files: {
-            orderBy: { created_at: 'desc' },
-            take: 1,
-          },
-        },
-      });
+      const repoName = input.repo.toLowerCase().replace(/s$/, '');
+      const repoPath = repoName === 'eip' ? 'EIPs' : repoName === 'erc' ? 'ERCs' : 'RIPs';
+      const filePath = repoName === 'eip' ? 'EIPS' : repoName === 'erc' ? 'ERCS' : 'RIPS';
+      const fileName = `${repoName}-${input.number}.md`;
+      const rawUrl = `https://raw.githubusercontent.com/ethereum/${repoPath}/master/${filePath}/${fileName}`;
 
-      if (!eip) {
-        throw new ORPCError('NOT_FOUND', { 
-          message: `EIP-${input.number} not found` 
-        });
+      const res = await fetch(rawUrl);
+      if (!res.ok) {
+        throw new ORPCError('NOT_FOUND', { message: `Proposal content not found` });
+      }
+      const content = await res.text();
+
+      let discussions_to: string | null = null;
+      let requires: number[] = [];
+      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+      if (frontmatterMatch) {
+        const fm = frontmatterMatch[1];
+        const discussionsMatch = fm.match(/^discussions-to:\s*(.+)$/im);
+        if (discussionsMatch) {
+          discussions_to = discussionsMatch[1].trim().replace(/^["']|["']$/g, '');
+        }
+        const requiresMatch = fm.match(/^requires:\s*(.+)$/im);
+        if (requiresMatch) {
+          requires = requiresMatch[1].trim()
+            .split(/[,\s\n\[\]]+/)
+            .map((s) => parseInt(s, 10))
+            .filter((n) => !Number.isNaN(n));
+        }
       }
 
-      // Return file path (content would need to be fetched from GitHub or stored separately)
-      const latestFile = eip.eip_files[0];
       return {
-        content: null, // TODO: Fetch from GitHub or add content field to eip_files
-        file_path: latestFile?.file_path || null,
-        updated_at: latestFile?.created_at?.toISOString() || null,
+        content,
+        file_path: `${filePath}/${fileName}`,
+        updated_at: null as string | null,
+        discussions_to,
+        requires,
       };
     }),
 

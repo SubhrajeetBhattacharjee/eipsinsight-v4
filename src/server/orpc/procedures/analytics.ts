@@ -839,6 +839,35 @@ const getReviewersRepoDistributionCached = unstable_cache(
   { tags: ['analytics-reviewers-repo-distribution'], revalidate: 600 }
 );
 
+const getRecentChangesCached = unstable_cache(
+  async (repo: string | null, limit: number) => {
+    const results = await prisma.$queryRawUnsafe<Array<{
+      eip: string; eip_type: string; title: string; from: string; to: string;
+      days: number; statusColor: string; repository: string; changed_at: Date;
+    }>>(
+      `SELECT e.eip_number::text as eip,
+         CASE WHEN s.category = 'ERC' THEN 'ERC' WHEN r.name LIKE '%RIPs%' THEN 'RIP' ELSE 'EIP' END as eip_type,
+         e.title, se.from_status as "from", se.to_status as "to",
+         EXTRACT(DAY FROM (NOW() - se.changed_at))::int as days,
+         CASE WHEN se.to_status = 'Final' THEN 'emerald'
+              WHEN se.to_status IN ('Review', 'Last Call') THEN 'blue' ELSE 'slate' END as "statusColor",
+         r.name as repository, se.changed_at
+       FROM eip_status_events se
+       JOIN eips e ON se.eip_id = e.id
+       LEFT JOIN eip_snapshots s ON s.eip_id = e.id
+       LEFT JOIN repositories r ON se.repository_id = r.id
+       WHERE se.changed_at >= NOW() - INTERVAL '7 days'
+         AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+       ORDER BY se.changed_at DESC LIMIT $2`,
+      repo,
+      limit
+    );
+    return results;
+  },
+  ['analytics-getRecentChanges'],
+  { revalidate: 120 }
+);
+
 export const analyticsProcedures = {
   getActiveProposals: publicProcedure
     .input(repoFilterSchema)
@@ -1019,51 +1048,7 @@ export const analyticsProcedures = {
     }))
     .handler(async ({ context, input }) => {
       await checkAPIToken(context.headers);
-
-      const results = await prisma.$queryRawUnsafe<Array<{
-        eip: string;
-        eip_type: string;
-        title: string;
-        from: string;
-        to: string;
-        days: number;
-        statusColor: string;
-        repository: string;
-        changed_at: Date;
-      }>>(
-        `
-        SELECT
-          e.eip_number::text as eip,
-          CASE 
-            WHEN s.category = 'ERC' THEN 'ERC'
-            WHEN r.name LIKE '%RIPs%' THEN 'RIP'
-            ELSE 'EIP'
-          END as eip_type,
-          e.title,
-          se.from_status as "from",
-          se.to_status as "to",
-          EXTRACT(DAY FROM (NOW() - se.changed_at))::int as days,
-          CASE 
-            WHEN se.to_status = 'Final' THEN 'emerald'
-            WHEN se.to_status IN ('Review', 'Last Call') THEN 'blue'
-            ELSE 'slate'
-          END as "statusColor",
-          r.name as repository,
-          se.changed_at
-        FROM eip_status_events se
-        JOIN eips e ON se.eip_id = e.id
-        LEFT JOIN eip_snapshots s ON s.eip_id = e.id
-        LEFT JOIN repositories r ON se.repository_id = r.id
-        WHERE se.changed_at >= NOW() - INTERVAL '7 days'
-          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-        ORDER BY se.changed_at DESC
-        LIMIT $2
-      `,
-        input.repo ?? null,
-        input.limit
-      );
-
-      return results;
+      return getRecentChangesCached(input.repo ?? null, input.limit);
     }),
 
   getDecisionVelocity: os
@@ -1769,6 +1754,7 @@ export const analyticsProcedures = {
         WHERE pr.state = 'open'
           AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
         ORDER BY pr.created_at ASC
+        LIMIT 5000
       `, input.repo || null);
 
       return rows.map(r => ({
@@ -2205,6 +2191,7 @@ export const analyticsProcedures = {
             AND ($2::text IS NULL OR ca.occurred_at >= $2::timestamp)
             AND ($3::text IS NULL OR ca.occurred_at <= $3::timestamp)
           ORDER BY ca.actor, ca.occurred_at ASC
+          LIMIT 10000
           `,
           input.repo ?? null,
           input.from ?? null,
