@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useAnalytics } from "../layout";
+import { useAnalytics } from "../analytics-layout-client";
 import { client } from "@/lib/orpc";
 import {
   Loader2,

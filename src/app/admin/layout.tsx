@@ -34,7 +34,7 @@ export default async function AdminLayout({
     redirect("/login");
   }
 
-  let user: Awaited<ReturnType<typeof prisma.user.findUnique>> | null = null;
+  let user: { role: string } | null = null;
   try {
     user = await prisma.user.findUnique({
       where: { id: result.user.id },

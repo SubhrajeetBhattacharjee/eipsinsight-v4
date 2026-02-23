@@ -57,7 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .catch(() => []),
     prisma.upgrades
       .findMany({
-        select: { slug: true, updated_at: true },
+        select: { slug: true, created_at: true },
       })
       .catch(() => []),
   ]);
@@ -73,7 +73,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .filter((upgrade) => Boolean(upgrade.slug))
     .map((upgrade) => ({
       url: `${SITE_URL}/upgrade/${upgrade.slug}`,
-      lastModified: upgrade.updated_at ?? now,
+      lastModified: upgrade.created_at ?? now,
       changeFrequency: "weekly",
       priority: 0.8,
     }));
