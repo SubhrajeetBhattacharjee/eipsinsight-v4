@@ -2,11 +2,11 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { emailOTP } from "better-auth/plugins";
 import { env } from "@/env";
-import { prisma } from "@/lib/prisma";
+import { prismaAuth } from "@/lib/prisma-auth";
 import { sendEmail } from "@/lib/email";
 
 export const auth = betterAuth({
-  database: prismaAdapter(prisma, {
+  database: prismaAdapter(prismaAuth, {
     provider: "postgresql",
   }),
   baseURL: env.BETTER_AUTH_URL,
