@@ -15,8 +15,9 @@ function createPrismaAuth() {
   const adapter = new PrismaPg({
     connectionString,
     max: 2,
-    // Aiven direct connection requires SSL; Aiven uses its own CA so we accept the cert.
-    ...(isDirectAiven && { ssl: { rejectUnauthorized: false } }),
+    // Aiven direct connection requires SSL; ssl: true enables TLS.
+    // Use sslmode=no-verify in URL to accept Aiven's CA.
+    ...(isDirectAiven && { ssl: true }),
   });
   return new PrismaClient({ adapter, log: ["error"] });
 }
