@@ -1,14 +1,18 @@
 import { env } from "@/env";
+import type StripeLib from "stripe";
 
 /**
  * Lazy Stripe client initializer to avoid requiring the `stripe` package at
  * top-level (which can break builds when it's not installed).
  */
-let _stripe: any = null;
+let _stripe: StripeLib | null = null;
 async function stripeClient() {
   if (_stripe) return _stripe;
+  if (!env.STRIPE_SECRET_KEY) {
+    throw new Error("STRIPE_SECRET_KEY is not configured");
+  }
   const Stripe = (await import("stripe")).default;
-  _stripe = new Stripe(env.STRIPE_SECRET_KEY, {
+  _stripe = new Stripe(env.STRIPE_SECRET_KEY as string, {
     apiVersion: "2026-01-28.clover",
     typescript: true,
   });
@@ -217,6 +221,9 @@ export async function constructWebhookEvent(
   payload: string | Buffer,
   signature: string
 ) {
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    throw new Error("STRIPE_WEBHOOK_SECRET is not configured");
+  }
   const stripe = await stripeClient();
-  return stripe.webhooks.constructEvent(payload, signature, env.STRIPE_WEBHOOK_SECRET);
+  return stripe.webhooks.constructEvent(payload, signature, env.STRIPE_WEBHOOK_SECRET as string);
 }

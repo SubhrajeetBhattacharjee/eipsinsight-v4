@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Libre_Baskerville as LibreBaskervilleFont, Space_Grotesk as SpaceGroteskFont } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import "@/lib/orpc.server";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -10,8 +12,17 @@ import { Toaster } from "@/components/ui/sonner";
 import { Providers } from "@/providers/Providers";
 import { buildMetadata } from "@/lib/seo";
 
-// Note: removed next/font/google imports to avoid Turbopack internal resolution issues.
-// Fonts are loaded via CSS or external <link> (see globals.css or hosting).
+const Libre_Baskerville = LibreBaskervilleFont({
+  variable: "--font-libre-baskerville",
+  subsets: ["latin"],
+  weight: ["400", "700"],
+});
+
+const Space_Grotesk = SpaceGroteskFont({
+  variable: "--font-space-grotesk",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+});
 
 
 export const metadata: Metadata = {
@@ -51,7 +62,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="scroll-smooth" suppressHydrationWarning>
-      <body className="antialiased">
+      <body
+        className={`${Libre_Baskerville.variable} ${Space_Grotesk.variable} antialiased`}
+      >
         <Providers>
           <SidebarProvider>
             <AppSidebar />

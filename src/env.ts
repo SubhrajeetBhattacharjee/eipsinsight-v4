@@ -63,13 +63,9 @@ export const env = createEnv({
     NEXT_PUBLIC_FEATURE_PERSONA_CONTEXT_HEADERS: z
       .enum(["true", "false"])
       .optional()
-      .default("false"),    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1),  },
-    NEXT_PUBLIC_FEATURE_PERSONA_CONTEXT_HEADERS: z
-      .enum(["true", "false"])
-      .optional()
       .default("false"),
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1).optional(),
-
+  },
   /**
    * What object holds the environment variables at runtime. This is usually
    * `process.env` or `import.meta.env`.
