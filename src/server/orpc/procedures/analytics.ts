@@ -3247,13 +3247,18 @@ export const analyticsProcedures = {
   // PRs where an official editor was last_actor (governance state) AND the PR was updated this month.
   // Conservative metric: only counts PRs that had governance-state-changing editor action this month.
   getMonthlyEditorLeaderboard: optionalAuthProcedure
-    .input(z.object({ limit: z.number().optional().default(10) }))
+    .input(z.object({
+      limit: z.number().optional().default(10),
+      monthYear: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }))
     .handler(async ({ input }) => {
       const now = new Date();
-      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const nextMonth = now.getMonth() === 11
-        ? `${now.getFullYear() + 1}-01-01`
-        : `${now.getFullYear()}-${String(now.getMonth() + 2).padStart(2, '0')}-01`;
+      const baseDate = input.monthYear
+        ? new Date(`${input.monthYear}-01T00:00:00.000Z`)
+        : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const nextDate = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 1));
+      const monthStart = `${baseDate.getUTCFullYear()}-${String(baseDate.getUTCMonth() + 1).padStart(2, '0')}-01`;
+      const nextMonth = `${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth() + 1).padStart(2, '0')}-01`;
 
       const allEditors = Array.from(new Set(
         Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()
@@ -3281,5 +3286,162 @@ export const analyticsProcedures = {
         totalActions: Number(r.prs_touched),
         prsTouched: Number(r.prs_touched),
       }));
+    }),
+
+  // ——— Monthly Editor Leaderboard Detailed CSV ———
+  // Exports per-action rows for leaderboard editors with PR/review/action metadata.
+  exportMonthlyEditorLeaderboardDetailedCSV: optionalAuthProcedure
+    .input(z.object({
+      limit: z.number().optional().default(10),
+      monthYear: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const now = new Date();
+      const baseDate = input.monthYear
+        ? new Date(`${input.monthYear}-01T00:00:00.000Z`)
+        : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const nextDate = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 1));
+      const monthYear = `${baseDate.getUTCFullYear()}-${String(baseDate.getUTCMonth() + 1).padStart(2, '0')}`;
+      const monthStart = `${monthYear}-01`;
+      const nextMonth = `${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth() + 1).padStart(2, '0')}-01`;
+
+      const allEditors = Array.from(new Set(
+        Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()
+      ));
+
+      const rows = await prisma.$queryRawUnsafe<Array<{
+        editor: string;
+        rank: number;
+        prs_touched: bigint;
+        repo: string | null;
+        pr_number: number;
+        pr_title: string | null;
+        action_type: string;
+        occurred_at: Date;
+        event_type: string | null;
+        review_state: string | null;
+        governance_state: string | null;
+      }>>(
+        `
+        WITH leaders AS (
+          SELECT
+            pg.last_actor AS editor,
+            COUNT(DISTINCT pr.pr_number)::bigint AS prs_touched
+          FROM pull_requests pr
+          JOIN pr_governance_state pg
+            ON pg.pr_number = pr.pr_number
+           AND pg.repository_id = pr.repository_id
+          WHERE pg.last_actor = ANY($1::text[])
+            AND pr.updated_at >= $2::date
+            AND pr.updated_at < $3::date
+          GROUP BY pg.last_actor
+          ORDER BY prs_touched DESC, pg.last_actor ASC
+          LIMIT $4
+        ),
+        ranked AS (
+          SELECT
+            editor,
+            prs_touched,
+            ROW_NUMBER() OVER (ORDER BY prs_touched DESC, editor ASC) AS rank
+          FROM leaders
+        ),
+        actions AS (
+          SELECT
+            r.editor,
+            r.rank,
+            r.prs_touched,
+            repo.name AS repo,
+            ca.pr_number,
+            pr.title AS pr_title,
+            ca.action_type,
+            ca.occurred_at,
+            gs.current_state AS governance_state,
+            pe.event_type,
+            pe.review_state
+          FROM ranked r
+          JOIN contributor_activity ca
+            ON LOWER(ca.actor) = LOWER(r.editor)
+          LEFT JOIN repositories repo
+            ON repo.id = ca.repository_id
+          LEFT JOIN pull_requests pr
+            ON pr.pr_number = ca.pr_number
+           AND pr.repository_id = ca.repository_id
+          LEFT JOIN pr_governance_state gs
+            ON gs.pr_number = ca.pr_number
+           AND gs.repository_id = ca.repository_id
+          LEFT JOIN LATERAL (
+            SELECT
+              e.event_type,
+              e.metadata->>'review_state' AS review_state
+            FROM pr_events e
+            WHERE e.pr_number = ca.pr_number
+              AND e.repository_id = ca.repository_id
+              AND LOWER(e.actor) = LOWER(ca.actor)
+              AND e.created_at BETWEEN ca.occurred_at - INTERVAL '12 hours' AND ca.occurred_at + INTERVAL '12 hours'
+            ORDER BY ABS(EXTRACT(EPOCH FROM (e.created_at - ca.occurred_at))) ASC
+            LIMIT 1
+          ) pe ON TRUE
+          WHERE ca.occurred_at >= $2::date
+            AND ca.occurred_at < $3::date
+            AND ca.pr_number > 0
+        )
+        SELECT
+          editor,
+          rank,
+          prs_touched,
+          repo,
+          pr_number,
+          pr_title,
+          action_type,
+          occurred_at,
+          event_type,
+          review_state,
+          governance_state
+        FROM actions
+        ORDER BY rank ASC, editor ASC, occurred_at DESC
+        `,
+        allEditors,
+        monthStart,
+        nextMonth,
+        input.limit
+      );
+
+      const escapeCsv = (value: string | number | null | undefined) =>
+        `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+      const header = [
+        'month',
+        'rank',
+        'editor',
+        'prs_touched_in_month',
+        'repo',
+        'pr_number',
+        'pr_title',
+        'action_type',
+        'event_type',
+        'review_state',
+        'governance_state',
+        'occurred_at_utc',
+      ].join(',');
+
+      const body = rows.map((r) => [
+        escapeCsv(monthYear),
+        r.rank,
+        escapeCsv(r.editor),
+        Number(r.prs_touched),
+        escapeCsv(r.repo),
+        r.pr_number,
+        escapeCsv(r.pr_title),
+        escapeCsv(r.action_type),
+        escapeCsv(r.event_type),
+        escapeCsv(r.review_state),
+        escapeCsv(r.governance_state),
+        escapeCsv(r.occurred_at.toISOString()),
+      ].join(','));
+
+      return {
+        csv: [header, ...body].join('\n'),
+        filename: `editor-leaderboard-detailed-${monthYear}.csv`,
+      };
     }),
 }

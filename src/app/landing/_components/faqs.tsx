@@ -1,7 +1,6 @@
 'use client';
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import Link from 'next/link';
 import { motion } from 'motion/react';
 import { Github, Database, Users, Tag, Bug } from 'lucide-react';
 
@@ -75,7 +74,7 @@ export default function FAQs() {
   ];
 
   return (
-    <section className="relative w-full bg-slate-100/40 py-16 sm:py-20 dark:bg-slate-950/30" id="faqs">
+    <section className="relative w-full bg-linear-to-b from-slate-50/70 via-white to-slate-50/40 py-14 sm:py-18 dark:from-slate-950/40 dark:via-slate-950/20 dark:to-slate-950/40" id="faqs">
       <div className="container mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-10 md:flex-row md:gap-16">
           {/* Left Sidebar - Sticky */}
@@ -87,13 +86,13 @@ export default function FAQs() {
               transition={{ duration: 0.5 }}
               className="sticky top-24"
             >
-              <h2 className="dec-title text-xl font-semibold tracking-tight text-slate-800 dark:text-slate-200 sm:text-2xl">
+              <h2 className="dec-title text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
                 Frequently Asked Questions
               </h2>
-              <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-500">
+              <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
                 Get answers to common questions about our platform and services.
               </p>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-500">
+              <p className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                 Can&apos;t find what you&apos;re looking for? Visit our{' '}
                 <a
                   href="https://github.com/AvarchLLC/EIPsInsight"
@@ -128,19 +127,19 @@ export default function FAQs() {
                   >
                     <AccordionItem
                       value={item.id}
-                      className="rounded-lg border border-slate-200 dark:border-slate-700/50 bg-gradient-to-br from-white via-slate-50 to-white dark:from-slate-900/60 dark:via-slate-900/50 dark:to-slate-900/60 backdrop-blur-sm px-4 shadow-sm last:border-b"
+                      className="rounded-lg border border-slate-200 dark:border-slate-700/50 bg-gradient-to-br from-white via-slate-50 to-white dark:from-slate-900/60 dark:via-slate-900/50 dark:to-slate-900/60 backdrop-blur-sm px-4 shadow-sm transition-colors hover:border-slate-300 dark:hover:border-slate-700/70 last:border-b"
                     >
                       <AccordionTrigger className="cursor-pointer items-center py-5 hover:no-underline">
                         <div className="flex items-center gap-3">
                           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-cyan-400/30 bg-cyan-500/10">
                             <IconComponent className="h-4 w-4 text-cyan-700 dark:text-cyan-300" />
                           </div>
-                          <span className="text-base font-semibold text-slate-800 dark:text-slate-200">{item.question}</span>
+                          <span className="text-base font-semibold text-slate-900 dark:text-slate-100">{item.question}</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="pb-5">
                         <div className="pl-9">
-                          <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300 sm:text-base">
+                          <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                             {item.answer}
                           </p>
                         </div>
