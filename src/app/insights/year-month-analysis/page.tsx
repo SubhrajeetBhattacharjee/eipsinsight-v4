@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import ReactECharts from "echarts-for-react";
@@ -53,12 +53,16 @@ function DrilldownPageContent() {
   const repo = (searchParams.get("repo") || "all") as "all" | "eips" | "ercs" | "rips";
   const month = searchParams.get("month") || defaultMonth;
   const page = Math.max(1, Number(searchParams.get("page") || "1"));
-  const pageSize = 25;
+  const pageSize = 8;
 
   const [loading, setLoading] = useState(true);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [data, setData] = useState<Awaited<ReturnType<typeof client.insights.getMonthlyDrilldown>> | null>(null);
   const [editors, setEditors] = useState<Array<{ editor: string; reviews: number; prsTouched: number; comments: number }>>([]);
+  const [columnSearch, setColumnSearch] = useState<Record<string, string>>({});
+  const [tableStatusFilter, setTableStatusFilter] = useState<string | null>(null);
+  const [tableRepoFilter, setTableRepoFilter] = useState<"eips" | "ercs" | "rips" | null>(null);
+  const tableSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     client.insights.getAvailableMonths().then(setAvailableMonths).catch(console.error);
@@ -70,9 +74,9 @@ function DrilldownPageContent() {
       try {
         const [drilldown, editorRows] = await Promise.all([
           client.insights.getMonthlyDrilldown({
-            repo,
+            repo: tableRepoFilter ?? repo,
             month,
-            status: [],
+            status: tableStatusFilter ? [tableStatusFilter] : [],
             change: [],
             type: [],
             q: "",
@@ -95,7 +99,13 @@ function DrilldownPageContent() {
       }
     };
     run();
-  }, [repo, month, page]);
+  }, [repo, month, page, pageSize, tableStatusFilter, tableRepoFilter]);
+
+  useEffect(() => {
+    setTableStatusFilter(null);
+    setTableRepoFilter(null);
+    setColumnSearch({});
+  }, [repo, month]);
 
   const setParams = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -110,6 +120,35 @@ function DrilldownPageContent() {
   const summary = data?.summary;
   const rows = useMemo(() => data?.rows || [], [data?.rows]);
   const meta = data?.meta;
+  const filteredRows = useMemo(() => {
+    const active = Object.entries(columnSearch).filter(([, v]) => v.trim().length > 0);
+    if (!active.length) return rows;
+    return rows.filter((r) =>
+      active.every(([k, v]) => {
+        const q = v.trim().toLowerCase();
+        switch (k) {
+          case "proposal":
+            return `${r.proposalKind}-${r.number} ${r.title || ""} ${r.repo}`.toLowerCase().includes(q);
+          case "currentStatus":
+            return (r.currentStatus || "").toLowerCase().includes(q);
+          case "statusChange":
+            return `${r.statusTransition?.from || ""} ${r.statusTransition?.to || ""} ${r.statusTransition?.changedAt || ""}`.toLowerCase().includes(q);
+          case "changeEvidence":
+            return `${r.changeSummary || ""} ${r.changedTypes.join(" ")}`.toLowerCase().includes(q);
+          case "prLinkage":
+            return `${r.primaryPrNumber || ""} ${r.allPrNumbers.join(" ")}`.toLowerCase().includes(q);
+          case "author":
+            return (r.author || "").toLowerCase().includes(q);
+          case "metrics":
+            return `${r.linkedPrCount} ${r.commits} ${r.filesChanged} ${r.discussionVolume}`.toLowerCase().includes(q);
+          case "upgrade":
+            return (r.upgradeTags || []).join(" ").toLowerCase().includes(q);
+          default:
+            return true;
+        }
+      })
+    );
+  }, [rows, columnSearch]);
 
   const statusRepoMatrix = useMemo(() => {
     const initRow = () => ({ eips: 0, ercs: 0, rips: 0 });
@@ -297,6 +336,40 @@ function DrilldownPageContent() {
     URL.revokeObjectURL(url);
   };
 
+  const exportEditorsDetailedCsv = async () => {
+    try {
+      const result = await client.insights.getEditorsLeaderboardDetailedExport({
+        month,
+        repo: repo === "all" ? undefined : repo,
+      });
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Editors detailed CSV export failed", err);
+    }
+  };
+
+  const applySummaryFilter = (status: string, targetRepo: "eips" | "ercs" | "rips") => {
+    setTableStatusFilter(status);
+    setTableRepoFilter(targetRepo);
+    setParams({ page: "1" });
+    setTimeout(() => {
+      tableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+
+  const clearTableFilters = () => {
+    setTableStatusFilter(null);
+    setTableRepoFilter(null);
+    setColumnSearch({});
+    setParams({ page: "1" });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="w-full pb-10">
@@ -380,9 +453,33 @@ function DrilldownPageContent() {
                         {STATUS_ORDER.map((status) => (
                           <tr key={status} className="border-b border-border/50 last:border-b-0">
                             <td className="px-3 py-2.5 text-sm text-foreground">{status}</td>
-                            <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">{statusRepoMatrix[status]?.eips || 0}</td>
-                            <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">{statusRepoMatrix[status]?.ercs || 0}</td>
-                            <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">{statusRepoMatrix[status]?.rips || 0}</td>
+                            <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">
+                              <button
+                                type="button"
+                                onClick={() => applySummaryFilter(status, "eips")}
+                                className="rounded px-1 hover:bg-muted hover:text-foreground"
+                              >
+                                {statusRepoMatrix[status]?.eips || 0}
+                              </button>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">
+                              <button
+                                type="button"
+                                onClick={() => applySummaryFilter(status, "ercs")}
+                                className="rounded px-1 hover:bg-muted hover:text-foreground"
+                              >
+                                {statusRepoMatrix[status]?.ercs || 0}
+                              </button>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">
+                              <button
+                                type="button"
+                                onClick={() => applySummaryFilter(status, "rips")}
+                                className="rounded px-1 hover:bg-muted hover:text-foreground"
+                              >
+                                {statusRepoMatrix[status]?.rips || 0}
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -410,7 +507,15 @@ function DrilldownPageContent() {
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4">
-                <h3 className="mb-3 text-sm font-semibold text-foreground">Editors Leaderboard — {monthLabel(month)}</h3>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Editors Leaderboard — {monthLabel(month)}</h3>
+                  <button
+                    onClick={exportEditorsDetailedCsv}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[11px] text-foreground hover:bg-muted/70"
+                  >
+                    <Download className="h-3 w-3" /> Detailed CSV
+                  </button>
+                </div>
                 {editors.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No editor activity for this month.</p>
                 ) : (
@@ -443,29 +548,52 @@ function DrilldownPageContent() {
                 )}
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-border bg-card">
+              <div ref={tableSectionRef} className="overflow-hidden rounded-xl border border-border bg-card">
+                {(tableStatusFilter || tableRepoFilter || Object.values(columnSearch).some((v) => v.trim())) && (
+                  <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-3 py-2 text-xs">
+                    <span className="text-muted-foreground">Table filters:</span>
+                    {tableStatusFilter && <span className="rounded border border-border bg-muted px-2 py-0.5 text-foreground">status: {tableStatusFilter}</span>}
+                    {tableRepoFilter && <span className="rounded border border-border bg-muted px-2 py-0.5 text-foreground">repo: {tableRepoFilter.toUpperCase()}</span>}
+                    <button onClick={clearTableFilters} className="ml-auto rounded border border-border bg-muted px-2 py-0.5 text-xs text-foreground hover:bg-muted/70">
+                      Clear
+                    </button>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/40">
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Proposal</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Current Status</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Status Change</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Change Evidence</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">PR Linkage</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Author</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Metrics</th>
-                        <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Upgrade</th>
+                        {[
+                          ["proposal", "Proposal"],
+                          ["currentStatus", "Current Status"],
+                          ["statusChange", "Status Change"],
+                          ["changeEvidence", "Change Evidence"],
+                          ["prLinkage", "PR Linkage"],
+                          ["author", "Author"],
+                          ["metrics", "Metrics"],
+                          ["upgrade", "Upgrade"],
+                        ].map(([key, label]) => (
+                          <th key={key} className="px-3 py-2 text-left">
+                            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+                            <input
+                              type="text"
+                              value={columnSearch[key] || ""}
+                              onChange={(e) => setColumnSearch((p) => ({ ...p, [key]: e.target.value }))}
+                              placeholder="Search..."
+                              className="mt-1 h-7 w-full rounded-md border border-border bg-background px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70"
+                            />
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.length === 0 ? (
+                      {filteredRows.length === 0 ? (
                         <tr>
                           <td colSpan={8} className="px-3 py-10 text-center text-sm text-muted-foreground">
                             No changed proposals found for {monthLabel(month)}.
                           </td>
                         </tr>
-                      ) : rows.map((r) => (
+                      ) : filteredRows.map((r) => (
                         <tr key={`${r.repo}-${r.number}`} className="border-b border-border/60 hover:bg-muted/20">
                           <td className="px-3 py-2 align-top">
                             <Link href={r.proposalUrl} className="font-mono text-xs font-semibold text-primary hover:underline">
