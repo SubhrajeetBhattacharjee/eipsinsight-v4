@@ -176,8 +176,152 @@ export const pectraPosts: BlogPost[] = [
   },
 ];
 
+// Historical Upgrades Blog Posts
+export const frontierPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/07/Ethereum-History.jpg",
+    title: "Ethereum's Launch and the Frontier Era",
+    content: "The beginning of Ethereum mainnet with the first smart contracts and decentralized applications.",
+    link: "https://etherworld.co/tag/ethereum-history/",
+  },
+];
+
+export const homesteadPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/07/Hard-Fork.jpg",
+    title: "Homestead: The First Planned Upgrade",
+    content: "Homestead brought critical safety improvements including the DELEGATECALL opcode and fixes to contract creation.",
+    link: "https://etherworld.co/tag/hard-fork/",
+  },
+];
+
+export const daoForkPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/08/DAO-Attack.jpg",
+    title: "The DAO Fork: Community Governance in Action",
+    content: "An irregular state transition coordinated to recover stolen funds after The DAO exploit, demonstrating community coordination.",
+    link: "https://etherworld.co/tag/dao/",
+  },
+];
+
+export const tangerineWhistlePosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/09/EIP-150.jpg",
+    title: "Tangerine Whistle: DoS Mitigation",
+    content: "This upgrade addressed denial-of-service vulnerabilities by repricing gas for state-access operations, making attacks economically infeasible.",
+    link: "https://etherworld.co/tag/eip-150/",
+  },
+];
+
+export const spuriousDragonPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/09/EIP-155.jpg",
+    title: "Spurious Dragon: Enhanced Security",
+    content: "Further security improvements with EXP gas repricing, contract code size limits, and transaction replay protection via ChainID.",
+    link: "https://etherworld.co/tag/eip-155/",
+  },
+];
+
+export const byzantiumPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/07/Byzantium.jpg",
+    title: "Byzantium: A Major Metropolis Phase",
+    content: "Introduced REVERT opcode, zk-SNARKs precompiles, and block rewards reduction toward Proof-of-Stake.",
+    link: "https://etherworld.co/tag/byzantium/",
+  },
+];
+
+export const constantinoplePosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/08/Constantinople.jpg",
+    title: "Constantinople: EVM Efficiency",
+    content: "Optimized EVM operations (SSTORE gas cost, CREATE2, bitwise shifting) and delayed the difficulty bomb.",
+    link: "https://etherworld.co/tag/constantinople/",
+  },
+];
+
+export const istanbulPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/08/Istanbul.jpg",
+    title: "Istanbul: Scalability Readiness",
+    content: "Gas repricing for state-rent preparation, privacy-enabling precompiles, and STATICCALL optimizations.",
+    link: "https://etherworld.co/tag/istanbul/",
+  },
+];
+
+export const berlinPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/08/Berlin.jpg",
+    title: "Berlin: L2 Scalability",
+    content: "Gas repricing and transaction format improvements to enable more efficient Layer 2 solutions.",
+    link: "https://etherworld.co/tag/berlin/",
+  },
+];
+
+export const londonPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/08/EIP-1559.jpg",
+    title: "London: EIP-1559 Fee Market Revolution",
+    content: "Fundamentally reformed Ethereum's fee market with dynamic base fees, burn mechanics, and the BASEFEE opcode.",
+    link: "https://etherworld.co/tag/eip-1559/",
+  },
+];
+
+export const mergePosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/09/The-Merge.jpg",
+    title: "The Merge: Proof-of-Stake Transition",
+    content: "Ethereum's highest-stakes upgrade, transitioning consensus from PoW to PoS, reducing energy consumption by 99.95%.",
+    link: "https://etherworld.co/tag/the-merge/",
+  },
+];
+
+export const shanghaiPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/08/Shanghai.jpg",
+    title: "Shanghai: Staking Unlocked",
+    content: "Enabled validators to withdraw accrued staking rewards and exited stake, fulfilling critical Proof-of-Stake requirements.",
+    link: "https://etherworld.co/tag/shanghai/",
+  },
+];
+
+export const cancunPosts: BlogPost[] = [
+  {
+    image: "https://etherworld.co/content/images/size/w2000/2024/09/EIP-4844.jpg",
+    title: "Cancun: Proto-Danksharding",
+    content: "EIP-4844 (blobs) enables Layer 2 solutions to post data more economically, reducing rollup costs by orders of magnitude.",
+    link: "https://etherworld.co/tag/eip-4844/",
+  },
+];
+
 export function getUpgradeBlogs(slug: string): BlogPost[] {
   switch (slug.toLowerCase()) {
+    case 'frontier':
+      return frontierPosts;
+    case 'homestead':
+      return homesteadPosts;
+    case 'dao-fork':
+      return daoForkPosts;
+    case 'tangerine-whistle':
+      return tangerineWhistlePosts;
+    case 'spurious-dragon':
+      return spuriousDragonPosts;
+    case 'byzantium':
+      return byzantiumPosts;
+    case 'constantinople':
+      return constantinoplePosts;
+    case 'istanbul':
+      return istanbulPosts;
+    case 'berlin':
+      return berlinPosts;
+    case 'london':
+      return londonPosts;
+    case 'paris':
+      return mergePosts;
+    case 'shanghai':
+      return shanghaiPosts;
+    case 'cancun':
+      return cancunPosts;
     case 'pectra':
       return pectraPosts;
     case 'fusaka':

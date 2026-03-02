@@ -40,12 +40,6 @@ const LEGEND_LABELS: Record<StatusType, string> = {
   proposed: 'PFI',
 };
 
-const cubeSize = 24;
-const blockHeight = cubeSize;
-const blockWidth = cubeSize * 2;
-const padding = 80;
-const rowHeight = cubeSize + 12;
-
 export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChartProps) {
   const router = useRouter();
   const [scrollIndex, setScrollIndex] = useState(0);
@@ -64,29 +58,12 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
       proposed: number;
     };
   } | null>(null);
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const dragStart = useRef({ x: 0, y: 0 });
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
-  // Global mouse tracking for accurate tooltip positioning
-  useEffect(() => {
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (hoveredEip) {
-        setMousePos({ x: e.clientX, y: e.clientY });
-      }
-    };
-
-    if (hoveredEip) {
-      window.addEventListener('mousemove', handleGlobalMouseMove);
-      return () => {
-        window.removeEventListener('mousemove', handleGlobalMouseMove);
-      };
-    }
-  }, [hoveredEip]);
-
   const dataToRender = Array.isArray(data) ? data : [];
-  const maxVisibleRows = 15;
+  const maxVisibleRows = 20;
   const visibleData = [...dataToRender].reverse().slice(scrollIndex, scrollIndex + maxVisibleRows);
 
   const MIN_ITEMS_DISPLAYED = 7;
@@ -102,13 +79,22 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
     )
   );
 
-  const blockSpacing = 6;
+  // Auto-scale boxes based on the number of EIPs
+  // For upgrades with fewer EIPs (historical), use smaller boxes
+  // For upgrades with many EIPs (Pectra/Fusaka), use larger boxes
+  const cubeSize = maxItems <= 10 ? 16 : maxItems <= 15 ? 20 : 24;
+  const blockHeight = cubeSize;
+  const blockWidth = cubeSize * 1.8;
+  const padding = maxItems <= 10 ? 60 : maxItems <= 15 ? 70 : 80;
+  const rowHeight = cubeSize + (maxItems <= 10 ? 8 : 10);
+
+  const blockSpacing = maxItems <= 10 ? 3 : 4;
   const xScale = scaleLinear({
     domain: [0, maxItems],
     range: [0, maxItems * (blockWidth + blockSpacing)],
   });
   const chartWidth = xScale(maxItems) + 200;
-  const chartPaddingBottom = 40;
+  const chartPaddingBottom = 30;
   const chartHeight = visibleData.length * rowHeight + chartPaddingBottom;
 
   const resetZoom = () => {
@@ -132,8 +118,14 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      // Update mouse position for tooltip
-      setMousePos({ x: e.clientX, y: e.clientY });
+      // Calculate mouse position relative to container (scroll-aware)
+      if (chartContainerRef.current) {
+        const rect = chartContainerRef.current.getBoundingClientRect();
+        setMousePos({
+          x: e.clientX - rect.left + chartContainerRef.current.scrollLeft,
+          y: e.clientY - rect.top + chartContainerRef.current.scrollTop,
+        });
+      }
       
       if (!isDragging || zoomLevel <= 1) return;
       const dx = e.clientX - dragStart.current.x;
@@ -195,66 +187,66 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
   return (
     <div className="relative w-full rounded-lg border border-cyan-400/20 bg-white/90 dark:bg-slate-950/50 backdrop-blur-sm overflow-hidden">
       {/* Header */}
-      <div className="p-3 sm:p-4 border-b border-cyan-400/10 bg-slate-100/80 dark:bg-slate-900/30">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <div className="p-3 border-b border-cyan-400/10 bg-slate-100/80 dark:bg-slate-900/30">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5">
           <div className="flex-1">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mb-1">EIP Composition Timeline</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">Track EIP status changes over time for <span className="text-cyan-700 dark:text-cyan-300 font-medium">{upgradeName}</span></p>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-0.5">EIP Composition Timeline</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-snug">Track EIP status changes for <span className="text-cyan-700 dark:text-cyan-300 font-medium">{upgradeName}</span></p>
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {/* Zoom Controls */}
             <div className="flex gap-0.5 rounded-lg bg-white/90 dark:bg-slate-950/80 backdrop-blur-sm border border-cyan-400/20 p-1">
               <button
                 onClick={() => setZoomLevel((z) => Math.min(z * 1.2, 3))}
                 disabled={zoomLevel >= 3}
                 className={cn(
-                  'p-1.5 rounded transition-all text-cyan-700 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-200 hover:bg-cyan-500/15',
+                  'p-1 rounded transition-all text-cyan-700 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-200 hover:bg-cyan-500/15',
                   'disabled:opacity-30 disabled:cursor-not-allowed'
                 )}
                 aria-label="Zoom in"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-3 w-3" />
               </button>
               <button
                 onClick={() => setZoomLevel((z) => Math.max(z / 1.2, 0.5))}
                 disabled={zoomLevel <= 0.5}
                 className={cn(
-                  'p-1.5 rounded transition-all text-cyan-700 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-200 hover:bg-cyan-500/15',
+                  'p-1 rounded transition-all text-cyan-700 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-200 hover:bg-cyan-500/15',
                   'disabled:opacity-30 disabled:cursor-not-allowed'
                 )}
                 aria-label="Zoom out"
               >
-                <Minus className="h-3.5 w-3.5" />
+                <Minus className="h-3 w-3" />
               </button>
               <button
                 onClick={resetZoom}
                 disabled={zoomLevel === 1 && offset.x === 0 && offset.y === 0}
                 className={cn(
-                  'p-1.5 rounded transition-all text-cyan-700 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-200 hover:bg-cyan-500/15',
+                  'p-1 rounded transition-all text-cyan-700 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-200 hover:bg-cyan-500/15',
                   'disabled:opacity-30 disabled:cursor-not-allowed'
                 )}
                 aria-label="Reset"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <RotateCcw className="h-3 w-3" />
               </button>
             </div>
             {/* Export Button */}
             <button
               onClick={downloadReport}
-              className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-400/25 transition-all text-xs font-medium flex items-center gap-1.5"
+              className="px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/25 border border-cyan-400/25 transition-all text-xs font-medium flex items-center gap-1"
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="h-3 w-3" />
               <span className="hidden sm:inline">Export</span>
             </button>
           </div>
         </div>
 
         {/* Legend */}
-        <div className="mt-3 pt-3 border-t border-cyan-400/10 flex flex-wrap gap-2.5 sm:gap-3 justify-center items-center">
+        <div className="mt-2.5 pt-2.5 border-t border-cyan-400/10 flex flex-wrap gap-2 justify-center items-center">
           {(Object.entries(COLOR_SCHEME) as [StatusType, string][]).map(([status, color]) => (
-            <div key={status} className="flex items-center gap-1.5">
+            <div key={status} className="flex items-center gap-1">
               <div
-                className="h-2 w-2 rounded-full border border-white/10"
+                className="h-1.5 w-1.5 rounded-full border border-white/10"
                 style={{ backgroundColor: color }}
               />
               <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{LEGEND_LABELS[status]}</span>
@@ -267,7 +259,7 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
       <div
         ref={chartContainerRef}
         className="relative overflow-auto bg-slate-100/70 dark:bg-slate-900/30"
-        style={{ height: `${chartHeight + 10}px`, minHeight: '400px' }}
+        style={{ height: `${chartHeight + 8}px`, minHeight: '450px' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -277,7 +269,7 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
         }}
       >
         {zoomLevel > 1 && (
-          <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-lg bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-cyan-400/20 px-2.5 py-1.5">
+          <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-lg bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-cyan-400/20 px-2 py-1">
             <span className="text-xs text-cyan-700 dark:text-cyan-300 font-medium">Drag to pan</span>
           </div>
         )}
@@ -313,8 +305,7 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
                           key={i}
                           onClick={() => router.push(`/eip/${eipNum}`)}
                           className="cursor-pointer"
-                          onMouseEnter={(e) => {
-                            const nativeEvent = e.nativeEvent as MouseEvent;
+                          onMouseEnter={() => {
                             setHoveredEip({
                               ...d,
                               date: item.date,
@@ -326,8 +317,6 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
                                 proposed: item.proposed?.length || 0,
                               },
                             });
-                            // Set initial mouse position using native event (viewport coordinates)
-                            setMousePos({ x: nativeEvent.clientX, y: nativeEvent.clientY });
                           }}
                           onMouseLeave={() => setHoveredEip(null)}
                         >
@@ -336,16 +325,16 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
                             y={0}
                             width={blockWidth}
                             height={blockHeight}
-                            rx={4}
+                            rx={3}
                             fill={COLOR_SCHEME[d.type]}
                             stroke="#1e293b"
-                            strokeWidth={1}
+                            strokeWidth={0.8}
                             className="transition-opacity hover:opacity-90"
                           />
                           <text
                             x={xScale(i) + blockWidth / 2}
                             y={blockHeight / 1.5}
-                            fontSize={14}
+                            fontSize={maxItems <= 10 ? 9 : 10}
                             textAnchor="middle"
                             fill="white"
                             fontWeight="600"
@@ -369,7 +358,7 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
                   <text
                     x={0}
                     y={yPos}
-                    fontSize={11}
+                    fontSize={maxItems <= 10 ? 9 : 10}
                     fontWeight="600"
                     fill="#06B6D4"
                     textAnchor="start"
@@ -378,7 +367,7 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
                     {new Date(item.date).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
-                      year: 'numeric',
+                      year: '2-digit',
                     })}
                   </text>
                 </g>
@@ -388,86 +377,80 @@ export function UpgradeTimelineChart({ data, upgradeName }: UpgradeTimelineChart
         </svg>
 
         {/* Tooltip */}
-        {hoveredEip && (() => {
-          const tooltipWidth = 260;
-          const tooltipHeight = 180;
-          const offset = 12; // Small offset from cursor
+        {hoveredEip && chartContainerRef.current && (() => {
+          const tooltipWidth = 240;
+          const tooltipHeight = 160;
+          const gap = 12; // space below cursor
           
-          // Use mousePos directly (already in clientX/Y coordinates)
-          let left = mousePos.x + offset;
-          let top = mousePos.y + offset;
+          // Position tooltip relative to container (works with scroll + zoom)
+          const containerRect = chartContainerRef.current.getBoundingClientRect();
+          const containerWidth = chartContainerRef.current.scrollWidth;
+          const containerHeight = chartContainerRef.current.scrollHeight;
           
-          // Check right boundary - flip to left side if needed
-          if (left + tooltipWidth > window.innerWidth - 10) {
-            left = mousePos.x - tooltipWidth - offset;
+          let left = mousePos.x + gap;
+          let top = mousePos.y + gap;
+          
+          // Prevent overflow within container
+          if (left + tooltipWidth > containerWidth) {
+            left = mousePos.x - tooltipWidth - gap;
           }
-          
-          // Check bottom boundary - flip to top if needed
-          if (top + tooltipHeight > window.innerHeight - 10) {
-            top = mousePos.y - tooltipHeight - offset;
-          }
-          
-          // Ensure tooltip doesn't go off left edge
-          if (left < 10) {
-            left = 10;
-          }
-          
-          // Ensure tooltip doesn't go off top edge
-          if (top < 10) {
-            top = 10;
+          if (top + tooltipHeight > containerHeight) {
+            top = mousePos.y - tooltipHeight - gap;
           }
           
           return (
             <div
-              className="fixed z-50 bg-white/98 dark:bg-slate-950/98 backdrop-blur-md border border-cyan-400/30 rounded-lg shadow-xl pointer-events-none"
+              className="absolute z-[9999] bg-white/98 dark:bg-slate-950/98 backdrop-blur-md border border-cyan-400/40 rounded-lg shadow-2xl pointer-events-none"
               style={{
                 left: `${left}px`,
                 top: `${top}px`,
                 width: `${tooltipWidth}px`,
-                boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(6, 182, 212, 0.2)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(6, 182, 212, 0.3)',
               }}
             >
-              <div className="p-3 space-y-2.5">
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="p-3 space-y-2">
+                <div className="flex items-center gap-2">
                   <span
-                    className="px-2 py-0.5 rounded-md text-xs font-bold text-white shadow-sm"
+                    className="px-2.5 py-1 rounded-md text-xs font-bold text-white"
                     style={{ backgroundColor: COLOR_SCHEME[hoveredEip.type] }}
                   >
                     EIP-{hoveredEip.eip.replace(/EIP-/, '')}
                   </span>
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {changeStatus(hoveredEip.type)}
                   </span>
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {new Date(hoveredEip.date).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
-                    year: 'numeric',
+                    year: '2-digit',
                   })}
                 </p>
-                <div className="pt-2 border-t border-slate-300/70 dark:border-slate-700/40">
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Status counts:</p>
-                  <div className="grid grid-cols-2 gap-1.5 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="text-emerald-700 dark:text-emerald-300">INCLUDED: {hoveredEip.statusCounts.included}</span>
+                
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Status counts:</p>
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <div className="flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                      <span className="text-slate-700 dark:text-slate-300">Incl: {hoveredEip.statusCounts.included}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-cyan-500" />
-                      <span className="text-cyan-700 dark:text-cyan-300">SFI: {hoveredEip.statusCounts.scheduled}</span>
+                    <div className="flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-cyan-500 flex-shrink-0" />
+                      <span className="text-slate-700 dark:text-slate-300">Sch: {hoveredEip.statusCounts.scheduled}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-amber-500" />
-                      <span className="text-amber-700 dark:text-amber-300">CFI: {hoveredEip.statusCounts.considered}</span>
+                    <div className="flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+                      <span className="text-slate-700 dark:text-slate-300">Con: {hoveredEip.statusCounts.considered}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-red-500" />
-                      <span className="text-red-700 dark:text-red-300">DFI: {hoveredEip.statusCounts.declined}</span>
+                    <div className="flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                      <span className="text-slate-700 dark:text-slate-300">Decl: {hoveredEip.statusCounts.declined}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full bg-violet-500" />
-                      <span className="text-violet-700 dark:text-violet-300">PFI: {hoveredEip.statusCounts.proposed}</span>
+                    <div className="flex items-center gap-1">
+                      <div className="h-1.5 w-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+                      <span className="text-slate-700 dark:text-slate-300">Prop: {hoveredEip.statusCounts.proposed}</span>
                     </div>
                   </div>
                 </div>

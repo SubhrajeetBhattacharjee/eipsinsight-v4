@@ -9,7 +9,7 @@ import { CollapsibleHeader } from '@/app/upgrade/_components/collapsible-header'
 import { NetworkUpgradesChart } from '@/app/upgrade/_components/network-upgrades-chart';
 import { HorizontalUpgradeTimeline } from '@/app/upgrade/_components/horizontal-upgrade-timeline';
 import { UpgradeTimelineChart } from '@/app/upgrade/_components/upgrade-timeline-chart';
-import { PersonaHighlights } from '@/app/upgrade/_components/persona-highlights';
+
 import { client } from '@/lib/orpc';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -102,14 +102,9 @@ export default function UpgradePage() {
       {/* Collapsible Header */}
       <CollapsibleHeader />
 
-      {/* Persona-specific Highlights */}
-      <PersonaHighlights className="bg-slate-100/70 dark:bg-slate-950/30" />
-
-      <SectionSeparator />
-
       {/* Stats & Flowchart Section */}
       <section className="relative w-full bg-slate-100/70 dark:bg-slate-950/30">
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-6 pb-6">
+        <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pt-6 pb-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Left: Stats Cards */}
             <div className="flex h-full">
@@ -155,7 +150,7 @@ export default function UpgradePage() {
           sectionId="timeline"
           className="bg-slate-100/70 dark:bg-slate-950/30"
         />
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
+        <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pb-6">
           <ZoomableTimeline
             imagePath="/upgrade/ethupgradetimeline.png"
             alt="Ethereum Network Upgrade Timeline"
@@ -173,7 +168,7 @@ export default function UpgradePage() {
           sectionId="network-upgrades-chart"
           className="bg-slate-100/70 dark:bg-slate-950/30"
         />
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
+        <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pb-6">
           <NetworkUpgradesChart />
         </div>
       </section>
@@ -188,7 +183,7 @@ export default function UpgradePage() {
           sectionId="upgrades"
           className="bg-slate-100/70 dark:bg-slate-950/30"
         />
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-6">
+        <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pb-6">
           <div className="mb-6">
             <HorizontalUpgradeTimeline />
           </div>

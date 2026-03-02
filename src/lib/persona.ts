@@ -338,18 +338,8 @@ export const PERSONA_UPGRADE_HIGHLIGHTS: Record<Persona, UpgradeHighlight[]> = {
   ],
   builder: [
     {
-      title: "ERC Standards in Upgrades",
-      description: "Application-layer standards that may affect your project",
-      ctaLabel: "View ERCs",
-      ctaLink: "/erc",
-    },
-    {
-      title: "Breaking Changes",
-      description: "Identify changes that might require code updates",
-    },
-    {
-      title: "New Capabilities",
-      description: "Discover new features enabled by upcoming upgrades",
+      title: "What This Upgrade Includes",
+      description: "Review the EIPs and features included in this upgrade",
     },
   ],
   enterprise: [
