@@ -220,7 +220,7 @@ export default function UpgradePage() {
       <div className="relative z-10">
         {/* 1. Upgrade Header */}
         <div className="relative w-full bg-background/80 backdrop-blur-xl border-b border-cyan-400/10">
-          <div className="mx-auto max-w-7xl px-4 pt-8 pb-4 sm:px-6 sm:pt-10 sm:pb-6">
+          <div className="mx-auto max-w-5xl px-4 pt-8 pb-4 sm:px-6 sm:pt-10 sm:pb-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 space-y-2">
                 {/* Upgrade name */}
@@ -325,7 +325,7 @@ export default function UpgradePage() {
           </div>
         </div>
 
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pb-8">
+        <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pb-8">
           {/* Timeline Chart Section */}
           {timelineData.length > 0 && (
             <motion.div
@@ -419,6 +419,58 @@ export default function UpgradePage() {
                   <span className="font-semibold">"Bogotá"</span> (execution layer upgrade, named after a Devcon location).
                 </p>
               </div>
+            ) : slug === 'frontier' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Frontier was Ethereum's genesis release on July 30, 2015, marked the official launch of the Ethereum mainnet. It enabled the deployment of smart contracts and laid the foundation for decentralized applications, establishing the core protocol functionality that Ethereum is built upon today.
+              </p>
+            ) : slug === 'homestead' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Homestead was the first planned Ethereum upgrade, introducing critical safety improvements. It added the DELEGATECALL opcode for complex contract interactions and fixed vulnerabilities in the contract creation process, establishing a foundation for more secure smart contract development.
+              </p>
+            ) : slug === 'dao-fork' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                The DAO Fork was an irregular state transition coordinated by the community to recover funds stolen in The DAO exploit. This upgrade demonstrated the power of community governance and established an important precedent for protocol decision-making during critical security incidents.
+              </p>
+            ) : slug === 'tangerine-whistle' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Tangerine Whistle addressed denial-of-service vulnerabilities by repricing gas for state-heavy operations. This upgrade made attacks economically infeasible and significantly enhanced network resilience against spam attacks.
+              </p>
+            ) : slug === 'spurious-dragon' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Spurious Dragon continued Ethereum's security improvements with EXP gas repricing, contract code size limits, and transaction replay protection via the ChainID parameter (EIP-155). It hardened the network against further DoS vectors and enabled cross-chain transaction safety.
+              </p>
+            ) : slug === 'byzantium' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Byzantium was a major Metropolis phase upgrade introducing the REVERT opcode for safer contract development, zk-SNARKs precompiles for privacy technologies, and block rewards reduction moving the network toward Proof-of-Stake. It represented a significant modernization of the EVM.
+              </p>
+            ) : slug === 'constantinople' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Constantinople optimized EVM operations including SSTORE gas cost improvements, the CREATE2 opcode, and bitwise shifting. These changes reduced smart contract deployment costs and significantly improved EVM performance.
+              </p>
+            ) : slug === 'istanbul' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Istanbul introduced gas repricing for state-rent preparation, privacy-enabling precompiles, and STATICCALL optimizations. These changes prepared the network for scalability solutions and enhanced interoperability between different systems.
+              </p>
+            ) : slug === 'berlin' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Berlin optimized gas accounting for state-access operations and introduced transaction access lists to enable more efficient Layer 2 solutions. This upgrade improved L2 scalability readiness and optimized gas costs for users.
+              </p>
+            ) : slug === 'london' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                London fundamentally reformed Ethereum's fee market with EIP-1559, introducing dynamic base fees and a burn mechanism. This upgrade revolutionized how transaction fees work, improved user experience, and began Ethereum's deflationary phase.
+              </p>
+            ) : slug === 'paris' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                The Merge was Ethereum's most significant upgrade, transitioning consensus from Proof-of-Work to Proof-of-Stake. This historic change reduced energy consumption by 99.95% and established validator-based security, marking a fundamental shift in how the network operates.
+              </p>
+            ) : slug === 'shanghai' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Shanghai enabled validators to withdraw accrued staking rewards and exit the validator set, fulfilling a critical Proof-of-Stake requirement. This upgrade unlocked staking functionality and completed the core capabilities needed for validator participation.
+              </p>
+            ) : slug === 'cancun' ? (
+              <p className="text-sm leading-relaxed text-slate-300">
+                Cancun delivered proto-danksharding through EIP-4844 (blobs), enabling Layer 2 solutions to post data more economically. This upgrade reduced rollup costs by orders of magnitude and laid crucial groundwork for full danksharding scalability.
+              </p>
             ) : (
               <p className="text-sm leading-relaxed text-slate-300">
                 Ethereum developers are now preparing for the next major network upgrade, known as{' '}

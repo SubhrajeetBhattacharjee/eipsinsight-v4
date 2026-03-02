@@ -81,15 +81,13 @@ const PERSONA_INTROS: Record<Persona, PersonaIntro> = {
     ],
   },
   builder: {
-    headline: "What Changes Affect Your Project",
+    headline: "Network Upgrades & Protocol Changes",
     subheadline:
-      "Understand which upcoming protocol changes might impact your smart contracts or applications. Focus on breaking changes and new capabilities.",
-    ctaLabel: "View ERCs",
-    ctaLink: "/erc",
+      "Stay updated on the latest Ethereum network upgrades and understand how they might affect your development.",
     stats: [
-      { label: "New Opcodes", value: "3", icon: Zap },
-      { label: "Gas Changes", value: "2", icon: AlertTriangle },
-      { label: "New Precompiles", value: "1", icon: FileCode2 },
+      { label: "Upcoming Upgrade", value: "Glamsterdam", icon: GitBranch },
+      { label: "Timeline", value: "Q2 2026", icon: Clock },
+      { label: "Core EIPs", value: "12", icon: FileCode2 },
     ],
   },
   enterprise: {
@@ -129,7 +127,7 @@ export function PersonaHighlights({ className }: PersonaHighlightsProps) {
     return (
       <div
         className={cn(
-          "container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6",
+          "container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6",
           className
         )}
       >
@@ -159,7 +157,7 @@ export function PersonaHighlights({ className }: PersonaHighlightsProps) {
 
   return (
     <section className={cn("relative w-full", className)}>
-      <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+      <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6">
         {/* Persona Context Header */}
         {isOnboarded && (
           <PersonaContextHeader

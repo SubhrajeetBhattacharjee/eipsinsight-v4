@@ -36,6 +36,7 @@ const STATIC_PUBLIC_PATHS = [
   "/tools/eip-builder",
   "/tools/timeline",
   "/upgrade",
+  "/upgrade/archive",
 ] as const;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

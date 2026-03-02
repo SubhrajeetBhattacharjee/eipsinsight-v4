@@ -7,10 +7,12 @@ import Link from 'next/link';
 import { useTheme } from 'next-themes';
 
 type UpgradeKey = 'pectra' | 'fusaka' | 'glamsterdam' | 'hegota';
+type TimelineKey = 'overview' | 'archive' | UpgradeKey;
 
 interface TimelineUpgrade {
   name: string;
-  key: UpgradeKey;
+  key: TimelineKey;
+  href: string;
   date: string;
   color: string;
   isPast: boolean;
@@ -26,8 +28,17 @@ const MotionDiv = motion.div;
 
 const upgrades: TimelineUpgrade[] = [
   {
+    name: 'Overview',
+    key: 'overview',
+    href: '/upgrade',
+    date: 'All Upgrades',
+    color: '#6B7280',
+    isPast: true,
+  },
+  {
     name: 'Previous Upgrades',
-    key: 'pectra',
+    key: 'archive',
+    href: '/upgrade/archive',
     date: '2015 – 2024',
     color: '#6B7280',
     isPast: true,
@@ -35,6 +46,7 @@ const upgrades: TimelineUpgrade[] = [
   {
     name: 'Pectra',
     key: 'pectra',
+    href: '/upgrade/pectra',
     date: 'May 7, 2025',
     color: '#DC2626',
     isPast: true,
@@ -42,6 +54,7 @@ const upgrades: TimelineUpgrade[] = [
   {
     name: 'Fusaka',
     key: 'fusaka',
+    href: '/upgrade/fusaka',
     date: 'Dec 3, 2025',
     color: '#10B981',
     isPast: true,
@@ -49,6 +62,7 @@ const upgrades: TimelineUpgrade[] = [
   {
     name: 'Glamsterdam',
     key: 'glamsterdam',
+    href: '/upgrade/glamsterdam',
     date: '2026',
     color: '#8B5CF6',
     isPast: false,
@@ -56,6 +70,7 @@ const upgrades: TimelineUpgrade[] = [
   {
     name: 'Hegotá',
     key: 'hegota',
+    href: '/upgrade/hegota',
     date: 'TBD',
     color: '#F59E0B',
     isPast: false,
@@ -70,51 +85,39 @@ export function HorizontalUpgradeTimeline({
   const { resolvedTheme } = useTheme();
   const isDarkTheme = resolvedTheme === 'dark';
   const currentIndex = upgrades.findIndex((u) => u.key === 'fusaka');
-  // We are between Fusaka (index 2) and Glamsterdam (index 3)
-  const transitionIndex = 2; // Index of the line between Fusaka and Glamsterdam
+  const transitionIndex = currentIndex;
 
   return (
     <div
       className={cn(
-        'relative overflow-x-auto rounded-2xl border border-slate-200 dark:border-cyan-400/20 bg-gradient-to-br from-white via-slate-50 to-cyan-50/40 dark:from-slate-950/70 dark:via-slate-950/90 dark:to-slate-950 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.12)] dark:shadow-[0_18px_40px_rgba(8,47,73,0.5)] sm:p-5 md:p-6',
+        'relative overflow-x-auto rounded-2xl border border-slate-200 dark:border-cyan-400/20 bg-linear-to-br from-white via-slate-50 to-cyan-50/40 dark:from-slate-950/70 dark:via-slate-950/90 dark:to-slate-950 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.12)] dark:shadow-[0_18px_40px_rgba(8,47,73,0.5)] sm:p-5 md:p-6',
         className,
       )}
     >
       <div className="flex min-w-max items-center justify-between gap-3 px-1 sm:gap-4 sm:px-2 md:gap-6">
         {upgrades.map((upgrade, index) => {
-          const isSelected = selectedUpgrade === upgrade.key && index !== 0;
+          const isSelected = selectedUpgrade === upgrade.key;
           const isBeforeCurrent = index < currentIndex;
           const isTransitionLine = index === transitionIndex;
+          const isProgressMilestone = upgrade.key !== 'overview' && upgrade.key !== 'archive';
 
           return (
             <React.Fragment key={`${upgrade.key}-${index}`}>
               <Link
-                href={
-                  index === 0
-                    ? '/upgrade'
-                    : upgrade.key === 'pectra'
-                      ? '/upgrade/pectra'
-                      : upgrade.key === 'fusaka'
-                        ? '/upgrade/fusaka'
-                        : upgrade.key === 'glamsterdam'
-                          ? '/upgrade/glamsterdam'
-                          : upgrade.key === 'hegota'
-                            ? '/upgrade/hegota'
-                            : '/upgrade'
-                }
+                href={upgrade.href}
                 className={cn(
                   'relative z-10 flex flex-col items-center',
-                  index === 0 ? 'cursor-default' : 'cursor-pointer',
+                  'cursor-pointer',
                 )}
               >
                 <MotionDiv
-                  whileHover={index > 0 ? { scale: 1.06, y: -4 } : {}}
-                  whileTap={index > 0 ? { scale: 0.96 } : {}}
+                  whileHover={{ scale: 1.06, y: -4 }}
+                  whileTap={{ scale: 0.96 }}
                   transition={{ duration: 0.18, ease: 'easeOut' }}
                   onClick={(e) => {
-                    if (index > 0 && onUpgradeClick) {
+                    if (onUpgradeClick && isProgressMilestone) {
                       e.preventDefault();
-                      onUpgradeClick(upgrade.key);
+                      onUpgradeClick(upgrade.key as UpgradeKey);
                     }
                   }}
                   className="w-full"
@@ -122,11 +125,11 @@ export function HorizontalUpgradeTimeline({
                 <div
                   className={cn(
                     'relative rounded-xl px-3 py-2.5 text-center text-xs font-semibold tracking-tight shadow-sm sm:px-4 sm:py-3 sm:text-sm md:px-5 md:py-3.5 md:text-base',
-                    index === 0
-                      ? 'border border-slate-300 dark:border-slate-700/60 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800/80 dark:to-slate-900/80 text-slate-700 dark:text-slate-300/80 shadow-[0_3px_10px_rgba(15,23,42,0.12)] dark:shadow-none'
-                      : 'border border-slate-300 dark:border-slate-800/70 bg-gradient-to-br from-white to-slate-100 dark:from-slate-900/80 dark:to-slate-950/95 text-slate-800 dark:text-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.08)] dark:shadow-none',
+                    upgrade.key === 'overview' || upgrade.key === 'archive'
+                      ? 'border border-slate-300 dark:border-slate-700/60 bg-linear-to-br from-slate-100 to-slate-200 dark:from-slate-800/80 dark:to-slate-900/80 text-slate-700 dark:text-slate-300/80 shadow-[0_3px_10px_rgba(15,23,42,0.12)] dark:shadow-none'
+                      : 'border border-slate-300 dark:border-slate-800/70 bg-linear-to-br from-white to-slate-100 dark:from-slate-900/80 dark:to-slate-950/95 text-slate-800 dark:text-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.08)] dark:shadow-none',
                     !isSelected &&
-                      index !== 0 &&
+                      isProgressMilestone &&
                       'hover:border-cyan-500/45 hover:bg-cyan-50 dark:hover:bg-slate-900/95 hover:text-cyan-800 dark:hover:text-cyan-50 hover:shadow-[0_10px_24px_rgba(8,145,178,0.18)] dark:hover:shadow-none',
                   )}
                   style={
@@ -145,7 +148,7 @@ export function HorizontalUpgradeTimeline({
                   }
                 >
                   <div className="whitespace-nowrap">{upgrade.name}</div>
-                  {isBeforeCurrent && index > 0 && (
+                  {isBeforeCurrent && isProgressMilestone && (
                     <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white dark:border-slate-950 bg-emerald-500 dark:bg-emerald-400 shadow-md shadow-emerald-400/60 sm:h-3.5 sm:w-3.5" />
                   )}
                 </div>

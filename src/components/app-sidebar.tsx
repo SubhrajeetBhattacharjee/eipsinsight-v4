@@ -137,7 +137,8 @@ const sidebarSections: SidebarSection[] = [
         icon: Package,
         href: "/upgrade",
         items: [
-          { title: "Previous Upgrades", href: "/upgrade" },
+          { title: "Overview", href: "/upgrade" },
+          { title: "Previous Upgrades", href: "/upgrade/archive" },
           { title: "Pectra", href: "/upgrade/pectra" },
           { title: "Fusaka", href: "/upgrade/fusaka" },
           { title: "Glamsterdam", href: "/upgrade/glamsterdam" },

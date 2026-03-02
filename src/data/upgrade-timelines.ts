@@ -294,9 +294,451 @@ export const fusakaTimeline: TimelineDataPoint[] = [
   },
 ];
 
+// Historical Upgrades - Timeline Progression
+export const frontierTimeline: TimelineDataPoint[] = [
+  {
+    date: '2015-07-30',
+    included: [],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const homesteadTimeline: TimelineDataPoint[] = [
+  {
+    date: '2015-10-01',
+    included: [],
+    scheduled: ['EIP-2'],
+    declined: [],
+    considered: ['EIP-6'],
+    proposed: ['EIP-7']
+  },
+  {
+    date: '2015-11-15',
+    included: [],
+    scheduled: ['EIP-2', 'EIP-6'],
+    declined: [],
+    considered: ['EIP-7'],
+    proposed: []
+  },
+  {
+    date: '2015-12-15',
+    included: ['EIP-2'],
+    scheduled: ['EIP-6', 'EIP-7'],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+  {
+    date: '2016-03-14',
+    included: ['EIP-2', 'EIP-7', 'EIP-8'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const daoForkTimeline: TimelineDataPoint[] = [
+  {
+    date: '2016-06-17',
+    included: [],
+    scheduled: [],
+    declined: [],
+    considered: ['EIP-779'],
+    proposed: []
+  },
+  {
+    date: '2016-07-10',
+    included: [],
+    scheduled: ['EIP-779'],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+  {
+    date: '2016-07-20',
+    included: ['EIP-779'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const tangerineWhistleTimeline: TimelineDataPoint[] = [
+  {
+    date: '2016-09-01',
+    included: [],
+    scheduled: [],
+    declined: [],
+    considered: ['EIP-150'],
+    proposed: []
+  },
+  {
+    date: '2016-09-15',
+    included: [],
+    scheduled: ['EIP-150'],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+  {
+    date: '2016-10-18',
+    included: ['EIP-150'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const spuriousDragonTimeline: TimelineDataPoint[] = [
+  {
+    date: '2016-08-15',
+    included: [],
+    scheduled: ['EIP-160'],
+    declined: [],
+    considered: ['EIP-170', 'EIP-155'],
+    proposed: ['EIP-214']
+  },
+  {
+    date: '2016-09-01',
+    included: [],
+    scheduled: ['EIP-160', 'EIP-170'],
+    declined: [],
+    considered: ['EIP-155', 'EIP-214'],
+    proposed: []
+  },
+  {
+    date: '2016-10-15',
+    included: ['EIP-160'],
+    scheduled: ['EIP-170', 'EIP-155'],
+    declined: [],
+    considered: ['EIP-214'],
+    proposed: []
+  },
+  {
+    date: '2016-11-22',
+    included: ['EIP-155', 'EIP-158', 'EIP-160', 'EIP-170'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const byzantiumTimeline: TimelineDataPoint[] = [
+  {
+    date: '2017-08-15',
+    included: [],
+    scheduled: ['EIP-609', 'EIP-658'],
+    declined: [],
+    considered: ['EIP-1014', 'EIP-1052', 'EIP-1108'],
+    proposed: ['EIP-1234', 'EIP-1344']
+  },
+  {
+    date: '2017-09-01',
+    included: [],
+    scheduled: ['EIP-609', 'EIP-658', 'EIP-1014', 'EIP-1052'],
+    declined: [],
+    considered: ['EIP-1108', 'EIP-1234', 'EIP-1344', 'EIP-1884'],
+    proposed: ['EIP-2028']
+  },
+  {
+    date: '2017-09-15',
+    included: ['EIP-609', 'EIP-658'],
+    scheduled: ['EIP-1014', 'EIP-1052', 'EIP-1108', 'EIP-1234'],
+    declined: [],
+    considered: ['EIP-1344', 'EIP-1884', 'EIP-2028'],
+    proposed: []
+  },
+  {
+    date: '2017-10-16',
+    included: ['EIP-609', 'EIP-658', 'EIP-1014', 'EIP-1052', 'EIP-1108', 'EIP-1234', 'EIP-1344', 'EIP-1884', 'EIP-2028'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const constantinopleTimeline: TimelineDataPoint[] = [
+  {
+    date: '2018-10-01',
+    included: [],
+    scheduled: ['EIP-1013'],
+    declined: [],
+    considered: ['EIP-1283', 'EIP-1014'],
+    proposed: ['EIP-1052', 'EIP-2200']
+  },
+  {
+    date: '2018-11-15',
+    included: [],
+    scheduled: ['EIP-1013', 'EIP-1283'],
+    declined: [],
+    considered: ['EIP-1014', 'EIP-1052'],
+    proposed: ['EIP-2200']
+  },
+  {
+    date: '2018-12-15',
+    included: ['EIP-1013'],
+    scheduled: ['EIP-1283', 'EIP-1014', 'EIP-1052'],
+    declined: [],
+    considered: ['EIP-2200'],
+    proposed: []
+  },
+  {
+    date: '2019-02-28',
+    included: ['EIP-145', 'EIP-1014', 'EIP-1344', 'EIP-1884', 'EIP-2028'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const istanbulTimeline: TimelineDataPoint[] = [
+  {
+    date: '2019-09-01',
+    included: [],
+    scheduled: ['EIP-1679'],
+    declined: [],
+    considered: ['EIP-2387', 'EIP-1702', 'EIP-2069'],
+    proposed: ['EIP-2200', 'EIP-2485']
+  },
+  {
+    date: '2019-10-01',
+    included: [],
+    scheduled: ['EIP-1679', 'EIP-2387'],
+    declined: [],
+    considered: ['EIP-1702', 'EIP-2069', 'EIP-2200'],
+    proposed: ['EIP-2485']
+  },
+  {
+    date: '2019-11-01',
+    included: ['EIP-1679'],
+    scheduled: ['EIP-2387', 'EIP-1702', 'EIP-2069'],
+    declined: [],
+    considered: ['EIP-2200', 'EIP-2485'],
+    proposed: []
+  },
+  {
+    date: '2019-12-07',
+    included: ['EIP-152', 'EIP-1108', 'EIP-1344', 'EIP-1679', 'EIP-2028', 'EIP-2200'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const berlinTimeline: TimelineDataPoint[] = [
+  {
+    date: '2020-11-01',
+    included: [],
+    scheduled: ['EIP-2930'],
+    declined: [],
+    considered: ['EIP-2929', 'EIP-2718'],
+    proposed: ['EIP-3298']
+  },
+  {
+    date: '2020-12-15',
+    included: [],
+    scheduled: ['EIP-2930', 'EIP-2929'],
+    declined: [],
+    considered: ['EIP-2718', 'EIP-3298'],
+    proposed: []
+  },
+  {
+    date: '2021-03-01',
+    included: ['EIP-2930'],
+    scheduled: ['EIP-2929', 'EIP-2718'],
+    declined: [],
+    considered: ['EIP-3298'],
+    proposed: []
+  },
+  {
+    date: '2021-04-15',
+    included: ['EIP-2929', 'EIP-2930', 'EIP-3198', 'EIP-3529'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const londonTimeline: TimelineDataPoint[] = [
+  {
+    date: '2021-06-01',
+    included: [],
+    scheduled: ['EIP-1559'],
+    declined: [],
+    considered: ['EIP-3198', 'EIP-3529'],
+    proposed: ['EIP-3541', 'EIP-3673']
+  },
+  {
+    date: '2021-07-01',
+    included: ['EIP-1559'],
+    scheduled: ['EIP-3198', 'EIP-3529'],
+    declined: [],
+    considered: ['EIP-3541', 'EIP-3673'],
+    proposed: []
+  },
+  {
+    date: '2021-07-20',
+    included: ['EIP-1559', 'EIP-3198', 'EIP-3529'],
+    scheduled: ['EIP-3541', 'EIP-3673'],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+  {
+    date: '2021-08-05',
+    included: ['EIP-1559', 'EIP-3198', 'EIP-3529', 'EIP-3541', 'EIP-3673'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const mergeTimeline: TimelineDataPoint[] = [
+  {
+    date: '2021-12-01',
+    included: [],
+    scheduled: ['EIP-3675'],
+    declined: [],
+    considered: ['EIP-4399', 'EIP-4341'],
+    proposed: []
+  },
+  {
+    date: '2022-04-15',
+    included: [],
+    scheduled: ['EIP-3675', 'EIP-4399'],
+    declined: [],
+    considered: ['EIP-4341'],
+    proposed: []
+  },
+  {
+    date: '2022-08-01',
+    included: [],
+    scheduled: ['EIP-3675', 'EIP-4399', 'EIP-4341'],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+  {
+    date: '2022-09-15',
+    included: ['EIP-3675', 'EIP-4399', 'EIP-4341'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const shanghaiTimeline: TimelineDataPoint[] = [
+  {
+    date: '2022-10-01',
+    included: [],
+    scheduled: ['EIP-3651'],
+    declined: [],
+    considered: ['EIP-3855', 'EIP-3860'],
+    proposed: ['EIP-6780']
+  },
+  {
+    date: '2022-12-15',
+    included: [],
+    scheduled: ['EIP-3651', 'EIP-3855'],
+    declined: [],
+    considered: ['EIP-3860', 'EIP-6780'],
+    proposed: []
+  },
+  {
+    date: '2023-02-15',
+    included: ['EIP-3651'],
+    scheduled: ['EIP-3855', 'EIP-3860'],
+    declined: [],
+    considered: ['EIP-6780'],
+    proposed: []
+  },
+  {
+    date: '2023-04-12',
+    included: ['EIP-3651', 'EIP-3855', 'EIP-3860', 'EIP-6049'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
+export const cancunTimeline: TimelineDataPoint[] = [
+  {
+    date: '2023-11-15',
+    included: [],
+    scheduled: ['EIP-4844'],
+    declined: [],
+    considered: ['EIP-1153', 'EIP-4788', 'EIP-5656'],
+    proposed: ['EIP-6780', 'EIP-7516']
+  },
+  {
+    date: '2024-01-15',
+    included: ['EIP-4844'],
+    scheduled: ['EIP-1153', 'EIP-4788'],
+    declined: [],
+    considered: ['EIP-5656', 'EIP-6780', 'EIP-7516'],
+    proposed: []
+  },
+  {
+    date: '2024-02-15',
+    included: ['EIP-4844', 'EIP-1153', 'EIP-4788'],
+    scheduled: ['EIP-5656', 'EIP-6780'],
+    declined: [],
+    considered: ['EIP-7516'],
+    proposed: []
+  },
+  {
+    date: '2024-03-13',
+    included: ['EIP-1153', 'EIP-4788', 'EIP-4844', 'EIP-5656', 'EIP-6780', 'EIP-7516'],
+    scheduled: [],
+    declined: [],
+    considered: [],
+    proposed: []
+  },
+];
+
 // Helper function to get timeline data for a specific upgrade
 export function getUpgradeTimelineData(slug: string): TimelineDataPoint[] | null {
   switch (slug.toLowerCase()) {
+    case 'frontier':
+      return frontierTimeline;
+    case 'homestead':
+      return homesteadTimeline;
+    case 'dao-fork':
+      return daoForkTimeline;
+    case 'tangerine-whistle':
+      return tangerineWhistleTimeline;
+    case 'spurious-dragon':
+      return spuriousDragonTimeline;
+    case 'byzantium':
+      return byzantiumTimeline;
+    case 'constantinople':
+      return constantinopleTimeline;
+    case 'istanbul':
+      return istanbulTimeline;
+    case 'berlin':
+      return berlinTimeline;
+    case 'london':
+      return londonTimeline;
+    case 'paris':
+      return mergeTimeline;
+    case 'shanghai':
+      return shanghaiTimeline;
+    case 'cancun':
+      return cancunTimeline;
     case 'pectra':
       return pectraTimeline;
     case 'fusaka':
