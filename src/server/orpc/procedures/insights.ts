@@ -206,10 +206,10 @@ export const insightsProcedures = {
     }))
     .handler(async ({ context, input }) => {const repoIds = await getRepoIds(input.repo);
 
-      const monthStart = input.month ? `${input.month}-01` : null;
+      const monthStart = input.month ? `${input.month}-01T00:00:00.000Z` : null;
       const monthEnd = input.month ? (() => {
         const [y, m] = input.month!.split('-').map(Number);
-        return new Date(y, m, 1).toISOString().split('T')[0];
+        return new Date(Date.UTC(y, m, 1)).toISOString();
       })() : null;
 
       const results = await prisma.$queryRawUnsafe<Array<{
@@ -219,16 +219,17 @@ export const insightsProcedures = {
         comments: bigint;
       }>>(
         `SELECT
-          pe.actor AS editor,
-          COUNT(*) FILTER (WHERE pe.event_type = 'reviewed')::bigint AS reviews,
-          COUNT(DISTINCT pe.pr_number)::bigint AS prs_touched,
-          COUNT(*) FILTER (WHERE pe.event_type IN ('commented', 'issue_comment'))::bigint AS comments
-        FROM pr_events pe
-        WHERE pe.actor_role = 'EDITOR'
-          AND ($1::date IS NULL OR pe.created_at >= $1::date)
-          AND ($2::date IS NULL OR pe.created_at < $2::date)
-          AND ($3::int[] IS NULL OR pe.repository_id = ANY($3))
-        GROUP BY pe.actor
+          ca.actor AS editor,
+          COUNT(*) FILTER (WHERE ca.action_type = 'reviewed')::bigint AS reviews,
+          COUNT(DISTINCT ca.pr_number)::bigint AS prs_touched,
+          COUNT(*) FILTER (WHERE ca.action_type IN ('commented', 'issue_comment'))::bigint AS comments
+        FROM contributor_activity ca
+        WHERE ca.role = 'EDITOR'
+          AND ($1::timestamptz IS NULL OR ca.occurred_at >= $1::timestamptz)
+          AND ($2::timestamptz IS NULL OR ca.occurred_at < $2::timestamptz)
+          AND ($3::int[] IS NULL OR ca.repository_id = ANY($3))
+          AND ca.action_type IN ('reviewed', 'commented', 'issue_comment')
+        GROUP BY ca.actor
         ORDER BY reviews DESC
         LIMIT 20`,
         monthStart,
@@ -620,7 +621,405 @@ export const insightsProcedures = {
       };
     }),
 
-  // ──── 13) Available months ────
+  // ──── 13) Monthly Drilldown (forensic table) ────
+  getMonthlyDrilldown: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips', 'all']).optional().default('all'),
+      month: z.string().regex(/^\d{4}-\d{2}$/),
+      status: z.array(z.string()).optional().default([]),
+      type: z.array(z.string()).optional().default([]),
+      change: z.array(z.enum(['status-change', 'content-change', 'metadata-change'])).optional().default([]),
+      q: z.string().optional().default(''),
+      sort: z.enum(['impact_desc', 'updated_desc', 'status_first', 'prs_desc']).optional().default('impact_desc'),
+      page: z.number().int().min(1).optional().default(1),
+      pageSize: z.number().int().min(1).max(2000).optional().default(25),
+    }))
+    .handler(async ({ input }) => {
+      const repoKey = input.repo === 'all' ? undefined : input.repo;
+      const repoIds = await getRepoIds(repoKey);
+      const monthStart = `${input.month}-01`;
+      const [year, mon] = input.month.split('-').map(Number);
+      const monthEnd = new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 10);
+
+      const coreRows = await prisma.$queryRawUnsafe<Array<{
+        eip_id: number;
+        eip_number: number;
+        title: string | null;
+        author: string | null;
+        created_at: Date | null;
+        status: string;
+        status_at_month: string | null;
+        type: string | null;
+        category: string | null;
+        updated_at: Date;
+        repo_name: string | null;
+        repo_short: string | null;
+      }>>(
+        `
+        SELECT
+          e.id AS eip_id,
+          e.eip_number,
+          e.title,
+          e.author,
+          e.created_at,
+          s.status,
+          sm.status_at_month,
+          s.type,
+          s.category,
+          s.updated_at,
+          r.name AS repo_name,
+          LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short
+        FROM eips e
+        JOIN eip_snapshots s ON s.eip_id = e.id
+        LEFT JOIN repositories r ON r.id = s.repository_id
+        LEFT JOIN LATERAL (
+          SELECT se.to_status AS status_at_month
+          FROM eip_status_events se
+          WHERE se.eip_id = e.id
+            AND se.changed_at < $2::date
+            AND ($1::int[] IS NULL OR se.repository_id = ANY($1))
+          ORDER BY se.changed_at DESC
+          LIMIT 1
+        ) sm ON TRUE
+        WHERE ($1::int[] IS NULL OR s.repository_id = ANY($1))
+        `,
+        repoIds,
+        monthEnd
+      );
+
+      const statusChangeRows = await prisma.$queryRawUnsafe<Array<{
+        eip_id: number;
+        status_changed_at: Date;
+        status_from: string | null;
+        status_to: string;
+        transition_count: bigint;
+      }>>(
+        `
+        SELECT
+          se.eip_id,
+          MAX(se.changed_at) AS status_changed_at,
+          (ARRAY_AGG(se.from_status ORDER BY se.changed_at DESC))[1] AS status_from,
+          (ARRAY_AGG(se.to_status ORDER BY se.changed_at DESC))[1] AS status_to,
+          COUNT(*)::bigint AS transition_count
+        FROM eip_status_events se
+        WHERE se.changed_at >= $1::date
+          AND se.changed_at < $2::date
+          AND ($3::int[] IS NULL OR se.repository_id = ANY($3))
+        GROUP BY se.eip_id
+        `,
+        monthStart,
+        monthEnd,
+        repoIds
+      );
+
+      const contentRows = await prisma.$queryRawUnsafe<Array<{
+        eip_number: number;
+        primary_pr_number: number | null;
+        primary_pr_title: string | null;
+        primary_pr_merged_at: Date | null;
+        all_pr_numbers: number[] | null;
+        linked_pr_count: bigint;
+        commits: bigint;
+        files_changed: bigint;
+        discussion_volume: bigint;
+      }>>(
+        `
+        SELECT
+          pre.eip_number,
+          (ARRAY_AGG(p.pr_number ORDER BY p.merged_at DESC NULLS LAST))[1] AS primary_pr_number,
+          (ARRAY_AGG(p.title ORDER BY p.merged_at DESC NULLS LAST))[1] AS primary_pr_title,
+          MAX(p.merged_at) AS primary_pr_merged_at,
+          ARRAY_REMOVE(ARRAY_AGG(DISTINCT p.pr_number), NULL) AS all_pr_numbers,
+          COUNT(DISTINCT p.pr_number)::bigint AS linked_pr_count,
+          COALESCE(SUM(COALESCE(p.num_commits, 0)), 0)::bigint AS commits,
+          COALESCE(SUM(COALESCE(p.num_files, 0)), 0)::bigint AS files_changed,
+          COALESCE(SUM(COALESCE(p.num_comments, 0)), 0)::bigint AS discussion_volume
+        FROM pull_request_eips pre
+        JOIN pull_requests p ON p.pr_number = pre.pr_number AND p.repository_id = pre.repository_id
+        WHERE p.merged_at >= $1::date
+          AND p.merged_at < $2::date
+          AND ($3::int[] IS NULL OR p.repository_id = ANY($3))
+        GROUP BY pre.eip_number
+        `,
+        monthStart,
+        monthEnd,
+        repoIds
+      );
+
+      const metadataRows = await prisma.$queryRawUnsafe<Array<{
+        eip_id: number;
+        metadata_changed_at: Date;
+        metadata_events: bigint;
+      }>>(
+        `
+        SELECT
+          x.eip_id,
+          MAX(x.changed_at) AS metadata_changed_at,
+          COUNT(*)::bigint AS metadata_events
+        FROM (
+          SELECT ce.eip_id, ce.changed_at
+          FROM eip_category_events ce
+          WHERE ce.changed_at >= $1::date
+            AND ce.changed_at < $2::date
+            AND ($3::int[] IS NULL OR ce.repository_id = ANY($3))
+          UNION ALL
+          SELECT de.eip_id, de.changed_at
+          FROM eip_deadline_events de
+          WHERE de.changed_at >= $1::date
+            AND de.changed_at < $2::date
+            AND ($3::int[] IS NULL OR de.repository_id = ANY($3))
+        ) x
+        GROUP BY x.eip_id
+        `,
+        monthStart,
+        monthEnd,
+        repoIds
+      );
+
+      const upgradeRows = await prisma.$queryRawUnsafe<Array<{ eip_number: number; upgrade_name: string }>>(
+        `
+        SELECT
+          ucc.eip_number,
+          COALESCE(u.name, u.slug) AS upgrade_name
+        FROM upgrade_composition_current ucc
+        JOIN upgrades u ON u.id = ucc.upgrade_id
+        `
+      );
+
+      const statusMap = new Map<number, {
+        changedAt: Date;
+        from: string | null;
+        to: string;
+        count: number;
+      }>();
+      for (const row of statusChangeRows) {
+        statusMap.set(row.eip_id, {
+          changedAt: row.status_changed_at,
+          from: row.status_from,
+          to: row.status_to,
+          count: Number(row.transition_count),
+        });
+      }
+
+      const contentMap = new Map<number, {
+        primaryPrNumber: number | null;
+        primaryPrTitle: string | null;
+        primaryPrMergedAt: Date | null;
+        allPrNumbers: number[];
+        linkedPrCount: number;
+        commits: number;
+        filesChanged: number;
+        discussionVolume: number;
+      }>();
+      for (const row of contentRows) {
+        contentMap.set(row.eip_number, {
+          primaryPrNumber: row.primary_pr_number,
+          primaryPrTitle: row.primary_pr_title,
+          primaryPrMergedAt: row.primary_pr_merged_at,
+          allPrNumbers: row.all_pr_numbers ?? [],
+          linkedPrCount: Number(row.linked_pr_count),
+          commits: Number(row.commits),
+          filesChanged: Number(row.files_changed),
+          discussionVolume: Number(row.discussion_volume),
+        });
+      }
+
+      const metadataMap = new Map<number, { changedAt: Date; events: number }>();
+      for (const row of metadataRows) {
+        metadataMap.set(row.eip_id, {
+          changedAt: row.metadata_changed_at,
+          events: Number(row.metadata_events),
+        });
+      }
+
+      const upgradeMap = new Map<number, string[]>();
+      for (const row of upgradeRows) {
+        if (!upgradeMap.has(row.eip_number)) upgradeMap.set(row.eip_number, []);
+        upgradeMap.get(row.eip_number)!.push(row.upgrade_name);
+      }
+
+      const rows = coreRows.map((core) => {
+        const statusEvt = statusMap.get(core.eip_id);
+        const contentEvt = contentMap.get(core.eip_number);
+        const metadataEvt = metadataMap.get(core.eip_id);
+        const metadataChanged = !!metadataEvt;
+
+        const changedTypes: Array<'status-change' | 'content-change' | 'metadata-change'> = [];
+        if (statusEvt) changedTypes.push('status-change');
+        if (contentEvt) changedTypes.push('content-change');
+        if (metadataChanged) changedTypes.push('metadata-change');
+
+        const latestChangedAt = [statusEvt?.changedAt, contentEvt?.primaryPrMergedAt, metadataEvt?.changedAt]
+          .filter((d): d is Date => !!d)
+          .sort((a, b) => b.getTime() - a.getTime())[0] ?? new Date(monthEnd);
+
+        const statusTransition = statusEvt
+          ? {
+              from: statusEvt.from,
+              to: statusEvt.to,
+              changedAt: statusEvt.changedAt.toISOString(),
+              count: statusEvt.count,
+            }
+          : null;
+
+        const repoShort = (core.repo_short || 'eips').toLowerCase();
+        const proposalKind = repoShort === 'ercs' ? 'ERC' : repoShort === 'rips' ? 'RIP' : 'EIP';
+        const proposalUrl = proposalKind === 'ERC' ? `/erc/${core.eip_number}` : proposalKind === 'RIP' ? `/rip/${core.eip_number}` : `/eip/${core.eip_number}`;
+        const primaryPrUrl = contentEvt?.primaryPrNumber != null
+          ? `/pr/${repoShort}/${contentEvt.primaryPrNumber}`
+          : null;
+
+        const impactScore =
+          (changedTypes.includes('status-change') ? 3 : 0) +
+          (changedTypes.includes('content-change') ? 2 : 0) +
+          (changedTypes.includes('metadata-change') ? 1 : 0) +
+          (statusEvt?.count ?? 0) +
+          (contentEvt?.linkedPrCount ?? 0);
+
+        return {
+          eipId: core.eip_id,
+          proposalKind,
+          number: core.eip_number,
+          title: core.title,
+          author: core.author,
+          repo: repoShort,
+          repoName: core.repo_name || null,
+          currentStatus: core.status_at_month || core.status,
+          type: core.type,
+          category: core.category,
+          createdAt: core.created_at?.toISOString() ?? null,
+          updatedAt: core.updated_at.toISOString(),
+          latestChangedAt: latestChangedAt.toISOString(),
+          changedTypes,
+          statusTransition,
+          changeSummary: statusEvt
+            ? `Status: ${statusEvt.from || 'Unknown'} -> ${statusEvt.to}`
+            : contentEvt
+              ? `Content updated via ${contentEvt.linkedPrCount} merged PR(s)`
+              : `Metadata updated (${metadataEvt?.events || 1} event${(metadataEvt?.events || 1) > 1 ? 's' : ''})`,
+          primaryPrNumber: contentEvt?.primaryPrNumber ?? null,
+          primaryPrTitle: contentEvt?.primaryPrTitle ?? null,
+          primaryPrMergedAt: contentEvt?.primaryPrMergedAt?.toISOString() ?? null,
+          primaryPrUrl,
+          allPrNumbers: contentEvt?.allPrNumbers ?? [],
+          linkedPrCount: contentEvt?.linkedPrCount ?? 0,
+          commits: contentEvt?.commits ?? 0,
+          filesChanged: contentEvt?.filesChanged ?? 0,
+          discussionVolume: contentEvt?.discussionVolume ?? 0,
+          upgradeTags: upgradeMap.get(core.eip_number) ?? [],
+          proposalUrl,
+          impactScore,
+        };
+      });
+
+      let filtered = rows.filter((r) => r.changedTypes.length > 0);
+
+      if (input.status.length > 0) {
+        const wanted = new Set(input.status.map((s) => s.toLowerCase()));
+        filtered = filtered.filter((r) =>
+          wanted.has((r.currentStatus || '').toLowerCase()) ||
+          wanted.has((r.statusTransition?.to || '').toLowerCase())
+        );
+      }
+
+      if (input.type.length > 0) {
+        const wanted = new Set(input.type.map((t) => t.toLowerCase()));
+        filtered = filtered.filter((r) =>
+          wanted.has((r.type || '').toLowerCase()) || wanted.has((r.category || '').toLowerCase())
+        );
+      }
+
+      if (input.change.length > 0) {
+        const wanted = new Set(input.change);
+        filtered = filtered.filter((r) => r.changedTypes.some((ct) => wanted.has(ct)));
+      }
+
+      const query = input.q.trim().toLowerCase();
+      if (query) {
+        filtered = filtered.filter((r) =>
+          String(r.number).includes(query) ||
+          (r.title || '').toLowerCase().includes(query) ||
+          (r.author || '').toLowerCase().includes(query)
+        );
+      }
+
+      if (input.sort === 'updated_desc') {
+        filtered.sort((a, b) => b.latestChangedAt.localeCompare(a.latestChangedAt));
+      } else if (input.sort === 'status_first') {
+        filtered.sort((a, b) => {
+          const as = a.changedTypes.includes('status-change') ? 1 : 0;
+          const bs = b.changedTypes.includes('status-change') ? 1 : 0;
+          if (as !== bs) return bs - as;
+          return b.latestChangedAt.localeCompare(a.latestChangedAt);
+        });
+      } else if (input.sort === 'prs_desc') {
+        filtered.sort((a, b) => (b.linkedPrCount - a.linkedPrCount) || b.latestChangedAt.localeCompare(a.latestChangedAt));
+      } else {
+        filtered.sort((a, b) => (b.impactScore - a.impactScore) || b.latestChangedAt.localeCompare(a.latestChangedAt));
+      }
+
+      const summary = {
+        totalChanged: filtered.length,
+        statusChanges: filtered.filter((r) => r.changedTypes.includes('status-change')).length,
+        contentChanges: filtered.filter((r) => r.changedTypes.includes('content-change')).length,
+        metadataChanges: filtered.filter((r) => r.changedTypes.includes('metadata-change')).length,
+        topStatuses: Object.entries(filtered.reduce((acc, r) => {
+          const key = r.statusTransition?.to || r.currentStatus || 'Unknown';
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([status, count]) => ({ status, count })),
+        transitions: Object.entries(filtered.reduce((acc, r) => {
+          if (!r.statusTransition) return acc;
+          const key = `${r.statusTransition.from || 'Unknown'}->${r.statusTransition.to || 'Unknown'}`;
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>))
+          .sort((a, b) => b[1] - a[1])
+          .map(([transition, count]) => ({ transition, count })),
+        statusBreakdown: Object.entries(filtered.reduce((acc, r) => {
+          const key = r.currentStatus || 'Unknown';
+          if (!acc[key]) acc[key] = { total: 0, transitionsIn: 0, contentTouched: 0 };
+          acc[key].total += 1;
+          if (r.statusTransition?.to === key) acc[key].transitionsIn += 1;
+          if (r.changedTypes.includes('content-change')) acc[key].contentTouched += 1;
+          return acc;
+        }, {} as Record<string, { total: number; transitionsIn: number; contentTouched: number }>))
+          .map(([status, values]) => ({ status, ...values }))
+          .sort((a, b) => b.total - a.total),
+      };
+
+      const total = filtered.length;
+      const page = input.page;
+      const pageSize = input.pageSize;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+
+      return {
+        meta: {
+          month: input.month,
+          repo: input.repo,
+          page,
+          pageSize,
+          total,
+          totalPages,
+          filtersApplied: {
+            status: input.status,
+            type: input.type,
+            change: input.change,
+            q: input.q,
+            sort: input.sort,
+          },
+        },
+        summary,
+        rows: paged,
+      };
+    }),
+
+  // ──── 14) Available months ────
   getAvailableMonths: optionalAuthProcedure
     .handler(async ({ context }) => {// Use eip_snapshots updated_at for speed instead of scanning eip_status_events
       const results = await prisma.$queryRawUnsafe<Array<{ month: string }>>(
