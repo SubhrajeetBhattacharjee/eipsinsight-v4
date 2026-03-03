@@ -146,7 +146,7 @@ function PersonaPreferencesSection() {
     if (newPersona === persona) return;
     
     setSavingPersona(true);
-    setPersona(newPersona);
+    setPersona(newPersona, { redirect: false });
     
     // Sync to server if authenticated
     if (isAuthenticated) {

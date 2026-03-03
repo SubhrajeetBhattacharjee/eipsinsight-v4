@@ -48,6 +48,39 @@ const mobileNavItems = [
   { title: "About Us", href: "/about", icon: Info },
 ];
 
+const PERSONA_TONE: Record<string, string> = {
+  emerald: "text-emerald-400 border-emerald-400/35 bg-emerald-500/12",
+  baby: "text-sky-300 border-sky-300/35 bg-sky-400/12",
+  orange: "text-orange-300 border-orange-300/35 bg-orange-500/12",
+  purple: "text-purple-300 border-purple-300/35 bg-purple-500/12",
+  violet: "text-violet-300 border-violet-300/35 bg-violet-500/12",
+  sky: "text-cyan-200 border-cyan-200/40 bg-cyan-300/12",
+};
+
+const PERSONA_ICON_TONE: Record<string, string> = {
+  emerald: "bg-emerald-500/15 text-emerald-400 border-emerald-400/30",
+  baby: "bg-sky-400/15 text-sky-300 border-sky-300/30",
+  orange: "bg-orange-500/15 text-orange-300 border-orange-300/30",
+  purple: "bg-purple-500/15 text-purple-300 border-purple-300/30",
+  violet: "bg-violet-500/15 text-violet-300 border-violet-300/30",
+  sky: "bg-cyan-300/15 text-cyan-200 border-cyan-200/35",
+};
+
+const PERSONA_HOVER_TONE: Record<string, string> = {
+  emerald:
+    "hover:bg-emerald-500/12 hover:border-emerald-400/30 hover:text-foreground focus:bg-emerald-500/12 focus:border-emerald-400/30 focus:text-foreground data-[highlighted]:bg-emerald-500/12 data-[highlighted]:border-emerald-400/30 data-[highlighted]:text-foreground",
+  baby:
+    "hover:bg-sky-400/12 hover:border-sky-300/30 hover:text-foreground focus:bg-sky-400/12 focus:border-sky-300/30 focus:text-foreground data-[highlighted]:bg-sky-400/12 data-[highlighted]:border-sky-300/30 data-[highlighted]:text-foreground",
+  orange:
+    "hover:bg-orange-500/12 hover:border-orange-300/30 hover:text-foreground focus:bg-orange-500/12 focus:border-orange-300/30 focus:text-foreground data-[highlighted]:bg-orange-500/12 data-[highlighted]:border-orange-300/30 data-[highlighted]:text-foreground",
+  purple:
+    "hover:bg-purple-500/12 hover:border-purple-300/30 hover:text-foreground focus:bg-purple-500/12 focus:border-purple-300/30 focus:text-foreground data-[highlighted]:bg-purple-500/12 data-[highlighted]:border-purple-300/30 data-[highlighted]:text-foreground",
+  violet:
+    "hover:bg-violet-500/12 hover:border-violet-300/30 hover:text-foreground focus:bg-violet-500/12 focus:border-violet-300/30 focus:text-foreground data-[highlighted]:bg-violet-500/12 data-[highlighted]:border-violet-300/30 data-[highlighted]:text-foreground",
+  sky:
+    "hover:bg-cyan-300/12 hover:border-cyan-200/35 hover:text-foreground focus:bg-cyan-300/12 focus:border-cyan-200/35 focus:text-foreground data-[highlighted]:bg-cyan-300/12 data-[highlighted]:border-cyan-200/35 data-[highlighted]:text-foreground",
+};
+
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -76,7 +109,7 @@ export default function Navbar() {
       await syncPersonaToServer(newPersona);
     }
     // Then update local state and redirect
-    setPersona(newPersona);
+    setPersona(newPersona, { redirect: false });
   };
 
   // Handle scroll for sticky navbar effect
@@ -92,6 +125,7 @@ export default function Navbar() {
   const currentPersona = persona ? PERSONAS[persona] : null;
   const PersonaIcon = currentPersona?.icon;
   const hasPersona = persona !== null;
+  const currentPersonaTone = currentPersona ? PERSONA_TONE[currentPersona.color] : "";
 
   return (
     <nav
@@ -139,12 +173,12 @@ export default function Navbar() {
                 <DropdownMenuTrigger asChild>
                   <button
                     className={cn(
-                      "flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all",
-                      "border border-border",
-                      "hover:border-primary/40 hover:bg-muted/60 hover:text-foreground",
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-all",
+                      "border",
+                      "hover:scale-[1.02]",
                       "text-xs",
                       hasPersona 
-                        ? "bg-muted/60 text-muted-foreground"
+                        ? cn("text-foreground", currentPersonaTone)
                         : "border-primary/40 bg-primary/10 text-primary animate-pulse"
                     )}
                   >
@@ -156,7 +190,7 @@ export default function Navbar() {
                     ) : (
                       <span className="text-xs font-medium">Select persona</span>
                     )}
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <ChevronDown className={cn("h-3 w-3", hasPersona ? "text-current/80" : "text-muted-foreground")} />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -172,18 +206,25 @@ export default function Navbar() {
                     const meta = PERSONAS[personaId];
                     const Icon = meta.icon;
                     const isSelected = personaId === persona;
+                    const tone = PERSONA_TONE[meta.color];
+                    const iconTone = PERSONA_ICON_TONE[meta.color];
+                    const hoverTone = PERSONA_HOVER_TONE[meta.color];
                     return (
                       <DropdownMenuItem
                         key={personaId}
                         onClick={() => handlePersonaChange(personaId)}
                         className={cn(
-                          "flex items-center gap-2 cursor-pointer rounded-md",
-                          isSelected && "bg-primary/10 text-primary"
+                          "flex cursor-pointer items-center gap-2 rounded-md border border-transparent px-2 py-2.5 transition-all",
+                          isSelected
+                            ? cn(tone, "shadow-[0_0_0_1px_rgb(var(--persona-accent-rgb)/0.18)]")
+                            : hoverTone
                         )}
                       >
-                        <Icon className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
+                        <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", iconTone)}>
+                          <Icon className="h-4 w-4 shrink-0" />
+                        </div>
                         <div className="flex flex-col">
-                          <span className={cn("text-sm", isSelected ? "text-foreground" : "text-muted-foreground")}>
+                          <span className={cn("text-sm font-medium", isSelected ? "text-foreground" : "text-muted-foreground")}>
                             {meta.shortLabel}
                           </span>
                           <span className="text-[10px] leading-tight text-muted-foreground/90">
@@ -354,7 +395,7 @@ export default function Navbar() {
                       className={cn(
                         "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm",
                         hasPersona
-                          ? "border-border bg-muted/60 text-muted-foreground"
+                          ? cn("text-foreground", currentPersonaTone)
                           : "border-primary/40 bg-primary/10 text-primary"
                       )}
                     >
@@ -366,7 +407,7 @@ export default function Navbar() {
                       ) : (
                         <span className="text-xs font-medium">Select persona</span>
                       )}
-                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                      <ChevronDown className={cn("h-3 w-3", hasPersona ? "text-current/80" : "text-muted-foreground")} />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-48 border-border bg-popover/95 backdrop-blur-xl">
@@ -374,14 +415,19 @@ export default function Navbar() {
                       const meta = PERSONAS[personaId];
                       const Icon = meta.icon;
                       const isSelected = personaId === persona;
+                      const tone = PERSONA_TONE[meta.color];
+                      const hoverTone = PERSONA_HOVER_TONE[meta.color];
                       return (
                         <DropdownMenuItem
                           key={personaId}
                           onClick={() => handlePersonaChange(personaId)}
-                          className={cn("flex items-center gap-2", isSelected && "bg-primary/10 text-primary")}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md border border-transparent px-2 py-2",
+                            isSelected ? tone : hoverTone
+                          )}
                         >
-                          <Icon className={cn("h-4 w-4", isSelected ? "text-primary" : "text-muted-foreground")} />
-                          <span className={isSelected ? "text-foreground" : "text-muted-foreground"}>{meta.shortLabel}</span>
+                          <Icon className={cn("h-4 w-4", isSelected ? "text-current" : "text-muted-foreground")} />
+                          <span className={cn("text-sm", isSelected ? "text-foreground" : "text-muted-foreground")}>{meta.shortLabel}</span>
                         </DropdownMenuItem>
                       );
                     })}

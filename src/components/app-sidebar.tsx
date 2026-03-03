@@ -248,25 +248,108 @@ const sidebarSections: SidebarSection[] = [
 // ============================================================================
 
 const PERSONA_SECTION_ORDER: Record<Persona, string[]> = {
-  // Developer: protocol upgrades and standards first, then data
   developer: ["standards", "analytics", "tools", "learn"],
-  // Editor: editorial workflow — standards, then analytics to track PRs/reviews
-  editor: ["standards", "analytics", "tools", "learn"],
-  // Researcher: data and analysis first, then the underlying standards
+  editor: ["analytics", "tools", "standards", "learn"],
   researcher: ["analytics", "standards", "tools", "learn"],
-  // Builder: tools and ERCs for building, then governance context
-  builder: ["tools", "standards", "analytics", "learn"],
-  // Enterprise: high-level governance overview, then learning resources
+  builder: ["tools", "standards", "learn", "analytics"],
   enterprise: ["standards", "analytics", "learn", "tools"],
-  // Newcomer: learning first, then progressively deeper content
   newcomer: ["learn", "standards", "analytics", "tools"],
 };
 
 const DEFAULT_SECTION_ORDER = ["standards", "analytics", "tools", "learn"];
 
+const PERSONA_ITEM_PRIORITY: Record<Persona, string[]> = {
+  developer: [
+    "Upgrades",
+    "Standards",
+    "Analytics",
+    "Tools",
+    "Insights",
+    "Explore",
+    "Resources",
+    "Search",
+    "Home",
+    "Dashboard",
+  ],
+  editor: [
+    "Search",
+    "Analytics",
+    "Tools",
+    "Standards",
+    "Insights",
+    "Explore",
+    "Resources",
+    "Upgrades",
+    "Home",
+    "Dashboard",
+  ],
+  researcher: [
+    "Analytics",
+    "Insights",
+    "Standards",
+    "Explore",
+    "Search",
+    "Upgrades",
+    "Tools",
+    "Resources",
+    "Home",
+    "Dashboard",
+  ],
+  builder: [
+    "Tools",
+    "Standards",
+    "Search",
+    "Explore",
+    "Resources",
+    "Insights",
+    "Analytics",
+    "Upgrades",
+    "Home",
+    "Dashboard",
+  ],
+  enterprise: [
+    "Upgrades",
+    "Insights",
+    "Standards",
+    "Analytics",
+    "Explore",
+    "Resources",
+    "Tools",
+    "Search",
+    "Home",
+    "Dashboard",
+  ],
+  newcomer: [
+    "Resources",
+    "Explore",
+    "Home",
+    "Dashboard",
+    "Standards",
+    "Upgrades",
+    "Insights",
+    "Analytics",
+    "Tools",
+    "Search",
+  ],
+};
+
 // ============================================================================
 // Helpers
 // ============================================================================
+
+function sortItemsByPersonaPriority(
+  items: SidebarItem[],
+  persona: Persona
+): SidebarItem[] {
+  const priority = PERSONA_ITEM_PRIORITY[persona];
+  const rank = new Map(priority.map((title, idx) => [title, idx]));
+  return [...items].sort((a, b) => {
+    const ar = rank.get(a.title) ?? Number.MAX_SAFE_INTEGER;
+    const br = rank.get(b.title) ?? Number.MAX_SAFE_INTEGER;
+    if (ar !== br) return ar - br;
+    return a.title.localeCompare(b.title);
+  });
+}
 
 function getOrderedSections(persona: Persona | null): SidebarSection[] {
   const sectionMap = new Map(sidebarSections.map((s) => [s.id, s]));
@@ -274,14 +357,18 @@ function getOrderedSections(persona: Persona | null): SidebarSection[] {
   const accountSection = sectionMap.get("account")!;
 
   // Respect the feature flag — if persona nav reordering is off, use default order
+  const effectivePersona = persona || DEFAULT_PERSONA;
+
   if (!FEATURES.PERSONA_NAV_REORDER) {
     const middleSections = DEFAULT_SECTION_ORDER
       .map((id) => sectionMap.get(id))
       .filter((s): s is SidebarSection => !!s);
-    return [mainSection, ...middleSections, accountSection];
+    return [mainSection, ...middleSections, accountSection].map((section) => ({
+      ...section,
+      items: sortItemsByPersonaPriority(section.items, effectivePersona),
+    }));
   }
 
-  const effectivePersona = persona || DEFAULT_PERSONA;
   const order =
     PERSONA_SECTION_ORDER[effectivePersona] || DEFAULT_SECTION_ORDER;
 
@@ -289,7 +376,10 @@ function getOrderedSections(persona: Persona | null): SidebarSection[] {
     .map((id) => sectionMap.get(id))
     .filter((s): s is SidebarSection => !!s);
 
-  return [mainSection, ...middleSections, accountSection];
+  return [mainSection, ...middleSections, accountSection].map((section) => ({
+    ...section,
+    items: sortItemsByPersonaPriority(section.items, effectivePersona),
+  }));
 }
 
 /**
@@ -632,6 +722,9 @@ function AppSidebarContent() {
     const isActive = isParentPathActive(item.href);
     const isChildActive = hasActiveChild(item.items);
     const isHighlighted = isActive || isChildActive;
+    const effectivePersona = persona ?? DEFAULT_PERSONA;
+    const personaPriority = PERSONA_ITEM_PRIORITY[effectivePersona] ?? [];
+    const isRecommended = personaPriority.slice(0, 2).includes(item.title);
 
     if (hasSubItems) {
       return (
@@ -677,6 +770,9 @@ function AppSidebarContent() {
                     >
                       {item.title}
                     </span>
+                    {isRecommended && (
+                      <Sparkles className="mr-1 h-3.5 w-3.5 text-primary" aria-label="Recommended" />
+                    )}
                     <ChevronRight
                       className={cn(
                         "h-3.5 w-3.5 text-muted-foreground transition-all duration-300",
