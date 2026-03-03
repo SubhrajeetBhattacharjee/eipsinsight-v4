@@ -53,8 +53,24 @@ const getYearStatsCached = unstable_cache(
     }>>`
       SELECT
         (SELECT COUNT(*) FROM eips WHERE created_at >= ${startDate} AND created_at <= ${endDate}) AS total_new_eips,
-        (SELECT status FROM eip_snapshots GROUP BY status ORDER BY COUNT(*) DESC LIMIT 1) AS most_common_status,
-        (SELECT category FROM eip_snapshots WHERE category IS NOT NULL GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1) AS most_active_category,
+        (
+          SELECT s.status
+          FROM eips e
+          JOIN eip_snapshots s ON s.eip_id = e.id
+          WHERE e.created_at >= ${startDate} AND e.created_at <= ${endDate} AND s.status IS NOT NULL
+          GROUP BY s.status
+          ORDER BY COUNT(*) DESC
+          LIMIT 1
+        ) AS most_common_status,
+        (
+          SELECT s.category
+          FROM eips e
+          JOIN eip_snapshots s ON s.eip_id = e.id
+          WHERE e.created_at >= ${startDate} AND e.created_at <= ${endDate} AND s.category IS NOT NULL
+          GROUP BY s.category
+          ORDER BY COUNT(*) DESC
+          LIMIT 1
+        ) AS most_active_category,
         (SELECT COUNT(*) FROM pull_requests WHERE created_at >= ${startDate} AND created_at <= ${endDate}) AS total_prs
     `;
     const r = rows[0];
@@ -444,6 +460,7 @@ export const exploreProcedures = {
       status: z.string().optional(),
       categories: z.array(z.string()).optional(),
       types: z.array(z.string()).optional(),
+      sort: z.enum(['updated_desc', 'updated_asc', 'days_desc', 'days_asc', 'number_asc']).default('updated_desc'),
       limit: z.number().min(1).max(100).default(50),
       offset: z.number().min(0).default(0),
     }))
@@ -477,6 +494,21 @@ export const exploreProcedures = {
       const filterClause = filters.length > 0 ? filters.join(' ') : '';
       const limit = input.limit;
       const offset = input.offset;
+      const orderByClause = (() => {
+        switch (input.sort) {
+          case 'updated_asc':
+            return 's.updated_at ASC NULLS LAST';
+          case 'days_desc':
+            return '(SELECT MAX(changed_at) FROM eip_status_events ese WHERE ese.eip_id = s.eip_id) ASC NULLS LAST';
+          case 'days_asc':
+            return '(SELECT MAX(changed_at) FROM eip_status_events ese WHERE ese.eip_id = s.eip_id) DESC NULLS LAST';
+          case 'number_asc':
+            return 'e.eip_number ASC';
+          case 'updated_desc':
+          default:
+            return 's.updated_at DESC NULLS LAST';
+        }
+      })();
 
       const [items, countResult] = await Promise.all([
         prisma.$queryRawUnsafe<Array<{
@@ -489,7 +521,7 @@ export const exploreProcedures = {
            FROM eip_snapshots s
            JOIN eips e ON e.id = s.eip_id
            WHERE 1=1 ${filterClause}
-           ORDER BY s.updated_at DESC
+           ORDER BY ${orderByClause}
            LIMIT ${limit} OFFSET ${offset}`,
           ...params
         ),
@@ -989,4 +1021,3 @@ export const exploreProcedures = {
       return getCategoryCountsCached();
     }),
 }
-
