@@ -9,6 +9,7 @@ import Link from 'next/link';
 interface EIP {
   id: number;
   number: number;
+  kind: string;
   title: string;
   type: string | null;
   status: string;
@@ -68,6 +69,8 @@ export function StatusEIPTable({
   onPageChange,
 }: StatusEIPTableProps) {
   const totalPages = Math.ceil(total / pageSize);
+  const proposalHref = (eip: EIP) => eip.kind === 'ERC' ? `/erc/${eip.number}` : eip.kind === 'RIP' ? `/rip/${eip.number}` : `/eip/${eip.number}`;
+  const proposalLabel = (eip: EIP) => `${eip.kind}-${eip.number}`;
 
   if (loading) {
     return (
@@ -148,10 +151,10 @@ export function StatusEIPTable({
               >
                 <td className="px-6 py-4 whitespace-nowrap">
                   <Link
-                    href={`/eips/${eip.number}`}
+                    href={proposalHref(eip)}
                     className="flex items-center gap-2 font-medium text-primary hover:text-primary/80"
                   >
-                    EIP-{eip.number}
+                    {proposalLabel(eip)}
                     <ExternalLink className="h-3 w-3 opacity-50" />
                   </Link>
                 </td>

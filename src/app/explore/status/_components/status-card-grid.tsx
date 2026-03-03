@@ -9,6 +9,7 @@ import Link from 'next/link';
 interface EIP {
   id: number;
   number: number;
+  kind: string;
   title: string;
   type: string | null;
   status: string;
@@ -51,6 +52,8 @@ function formatDaysInStatus(days: number | null): string {
 }
 
 export function StatusCardGrid({ eips, loading }: StatusCardGridProps) {
+  const proposalHref = (eip: EIP) => eip.kind === 'ERC' ? `/erc/${eip.number}` : eip.kind === 'RIP' ? `/rip/${eip.number}` : `/eip/${eip.number}`;
+  const proposalLabel = (eip: EIP) => `${eip.kind}-${eip.number}`;
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -76,7 +79,7 @@ export function StatusCardGrid({ eips, loading }: StatusCardGridProps) {
         const catColor = categoryColors[eip.category || ''] || 'bg-slate-100 dark:bg-slate-500/20 text-slate-700 dark:text-slate-300 border-slate-400/40 dark:border-slate-500/30';
 
         return (
-          <Link key={eip.id} href={`/eips/${eip.number}`}>
+          <Link key={eip.id} href={proposalHref(eip)}>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -92,7 +95,7 @@ export function StatusCardGrid({ eips, loading }: StatusCardGridProps) {
               {/* Header */}
               <div className="flex items-start justify-between mb-3">
                 <span className="text-lg font-bold text-primary">
-                  EIP-{eip.number}
+                  {proposalLabel(eip)}
                 </span>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </div>

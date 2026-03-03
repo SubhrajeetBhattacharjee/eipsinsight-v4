@@ -265,8 +265,20 @@ const getStatusCountsCached = unstable_cache(
       count: bigint;
       last_updated: Date;
     }>>`
+      WITH all_statuses AS (
+        SELECT s.status, s.updated_at AS updated_at
+        FROM eip_snapshots s
+        JOIN eips e ON e.id = s.eip_id
+        WHERE s.status IS NOT NULL
+          AND e.eip_number <> 0
+        UNION ALL
+        SELECT COALESCE(r.status, 'Unknown') AS status,
+               COALESCE((SELECT MAX(rc.commit_date) FROM rip_commits rc WHERE rc.rip_id = r.id), r.created_at) AS updated_at
+        FROM rips r
+        WHERE r.rip_number <> 0
+      )
       SELECT status, COUNT(*) AS count, MAX(updated_at) AS last_updated
-      FROM eip_snapshots
+      FROM all_statuses
       GROUP BY status
     `;
     return rows.map(r => ({
@@ -285,9 +297,19 @@ const getCategoryCountsCached = unstable_cache(
       category: string;
       count: bigint;
     }>>`
+      WITH all_categories AS (
+        SELECT s.category AS category
+        FROM eip_snapshots s
+        JOIN eips e ON e.id = s.eip_id
+        WHERE s.category IS NOT NULL
+          AND e.eip_number <> 0
+        UNION ALL
+        SELECT 'RIP'::text AS category
+        FROM rips
+        WHERE rip_number <> 0
+      )
       SELECT category, COUNT(*) AS count
-      FROM eip_snapshots
-      WHERE category IS NOT NULL
+      FROM all_categories
       GROUP BY category
     `;
     return rows.map(r => ({ category: r.category, count: Number(r.count) }));
@@ -468,6 +490,8 @@ export const exploreProcedures = {
       const filters: string[] = [];
       const params: unknown[] = [];
       let paramIdx = 0;
+      const includesRipCategory = (input.categories ?? []).some((category) => category.toLowerCase() === 'rip' || category.toLowerCase() === 'rips');
+      const ripEnabled = (!input.types || input.types.length === 0) && (!input.categories || input.categories.length === 0 || includesRipCategory);
 
       if (input.status) {
         paramIdx++;
@@ -497,16 +521,16 @@ export const exploreProcedures = {
       const orderByClause = (() => {
         switch (input.sort) {
           case 'updated_asc':
-            return 's.updated_at ASC NULLS LAST';
+            return 'updated_at ASC NULLS LAST';
           case 'days_desc':
-            return '(SELECT MAX(changed_at) FROM eip_status_events ese WHERE ese.eip_id = s.eip_id) ASC NULLS LAST';
+            return 'last_changed_at ASC NULLS LAST';
           case 'days_asc':
-            return '(SELECT MAX(changed_at) FROM eip_status_events ese WHERE ese.eip_id = s.eip_id) DESC NULLS LAST';
+            return 'last_changed_at DESC NULLS LAST';
           case 'number_asc':
-            return 'e.eip_number ASC';
+            return 'eip_number ASC';
           case 'updated_desc':
           default:
-            return 's.updated_at DESC NULLS LAST';
+            return 'updated_at DESC NULLS LAST';
         }
       })();
 
@@ -515,18 +539,60 @@ export const exploreProcedures = {
           eip_id: number; eip_number: number; title: string | null;
           type: string | null; status: string; category: string | null;
           updated_at: Date | null; last_changed_at: Date | null;
+          kind: string;
         }>>(
-          `SELECT s.eip_id, e.eip_number, e.title, s.type, s.status, s.category, s.updated_at,
-                  (SELECT MAX(changed_at) FROM eip_status_events ese WHERE ese.eip_id = s.eip_id) AS last_changed_at
-           FROM eip_snapshots s
-           JOIN eips e ON e.id = s.eip_id
-           WHERE 1=1 ${filterClause}
-           ORDER BY ${orderByClause}
-           LIMIT ${limit} OFFSET ${offset}`,
+          `WITH base AS (
+            SELECT
+              s.eip_id,
+              e.eip_number,
+              e.title,
+              s.type,
+              s.status,
+              s.category,
+              s.updated_at,
+              (SELECT MAX(changed_at) FROM eip_status_events ese WHERE ese.eip_id = s.eip_id) AS last_changed_at,
+              CASE
+                WHEN LOWER(SPLIT_PART(COALESCE(r.name, ''), '/', 2)) = 'rips' THEN 'RIP'
+                WHEN LOWER(SPLIT_PART(COALESCE(r.name, ''), '/', 2)) = 'ercs' OR s.category = 'ERC' THEN 'ERC'
+                ELSE 'EIP'
+              END AS kind
+            FROM eip_snapshots s
+            JOIN eips e ON e.id = s.eip_id
+            LEFT JOIN repositories r ON r.id = s.repository_id
+            WHERE e.eip_number <> 0 ${filterClause}
+            ${ripEnabled ? `UNION ALL
+            SELECT
+              rip.id AS eip_id,
+              rip.rip_number AS eip_number,
+              rip.title,
+              NULL::text AS type,
+              COALESCE(rip.status, 'Unknown') AS status,
+              'RIP'::text AS category,
+              COALESCE((SELECT MAX(rc.commit_date) FROM rip_commits rc WHERE rc.rip_id = rip.id), rip.created_at) AS updated_at,
+              COALESCE((SELECT MAX(rc.commit_date) FROM rip_commits rc WHERE rc.rip_id = rip.id), rip.created_at) AS last_changed_at,
+              'RIP'::text AS kind
+            FROM rips rip
+            WHERE rip.rip_number <> 0
+            ${input.status ? ` AND COALESCE(rip.status, 'Unknown') = $1` : ''}` : ''}
+          )
+          SELECT * FROM base
+          ORDER BY ${orderByClause}
+          LIMIT ${limit} OFFSET ${offset}`,
           ...params
         ),
         prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-          `SELECT COUNT(*) AS count FROM eip_snapshots s WHERE 1=1 ${filterClause}`,
+          `WITH base AS (
+            SELECT s.eip_id
+            FROM eip_snapshots s
+            JOIN eips e ON e.id = s.eip_id
+            WHERE e.eip_number <> 0 ${filterClause}
+            ${ripEnabled ? `UNION ALL
+            SELECT rip.id
+            FROM rips rip
+            WHERE rip.rip_number <> 0
+            ${input.status ? ` AND COALESCE(rip.status, 'Unknown') = $1` : ''}` : ''}
+          )
+          SELECT COUNT(*) AS count FROM base`,
           ...params
         ),
       ]);
@@ -547,6 +613,7 @@ export const exploreProcedures = {
             category: row.category,
             updatedAt: row.updated_at?.toISOString() || null,
             daysInStatus,
+            kind: row.kind === 'RIP' ? 'RIP' : row.kind === 'ERC' ? 'ERC' : 'EIP',
           };
         }),
         total,

@@ -16,6 +16,7 @@ import { StatusFlowGraph } from './_components/status-flow-graph';
 interface EIP {
   id: number;
   number: number;
+  kind: string;
   title: string;
   type: string | null;
   status: string;
