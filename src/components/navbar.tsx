@@ -97,12 +97,10 @@ export default function Navbar() {
     <nav
       className={cn(
         "relative z-50 w-full transition-all duration-300",
-        "border-b backdrop-blur-xl",
-        "dark:border-primary/20 dark:bg-slate-950/90",
-        "border-slate-200/80 bg-white/95",
+        "border-b border-border bg-background/95 backdrop-blur-xl",
         scrolled
-          ? "dark:border-primary/30 dark:bg-slate-950/95 dark:shadow-[0_4px_30px_rgb(var(--persona-accent-rgb)/0.12)] shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-          : "dark:shadow-[0_4px_20px_rgb(var(--persona-accent-rgb)/0.08)] shadow-[0_2px_10px_rgba(0,0,0,0.04)]"
+          ? "border-primary/30 bg-background/98 shadow-[0_8px_28px_rgb(var(--persona-accent-rgb)/0.14)]"
+          : "shadow-[0_2px_12px_rgb(var(--persona-accent-rgb)/0.08)]"
       )}
     >
       <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 xl:px-12">
@@ -120,7 +118,7 @@ export default function Navbar() {
                 unoptimized
               />
             </div>
-            <span className="dec-title font-semibold text-slate-900 dark:text-white group-hover:text-primary dark:group-hover:text-primary/90 transition-colors">
+            <span className="dec-title font-semibold text-foreground transition-colors group-hover:text-primary">
               EIPsInsight
             </span>
           </Link>
@@ -142,12 +140,11 @@ export default function Navbar() {
                   <button
                     className={cn(
                       "flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all",
-                      "border",
-                      "dark:hover:border-primary/30 dark:hover:bg-slate-800/50 dark:hover:text-white",
-                      "hover:border-primary/40 hover:bg-slate-100",
+                      "border border-border",
+                      "hover:border-primary/40 hover:bg-muted/60 hover:text-foreground",
                       "text-xs",
                       hasPersona 
-                        ? "border-slate-300 dark:border-slate-700/50 bg-slate-100 dark:bg-slate-800/30 text-slate-700 dark:text-slate-300"
+                        ? "bg-muted/60 text-muted-foreground"
                         : "border-primary/40 bg-primary/10 text-primary animate-pulse"
                     )}
                   >
@@ -159,15 +156,15 @@ export default function Navbar() {
                     ) : (
                       <span className="text-xs font-medium">Select persona</span>
                     )}
-                    <ChevronDown className="h-3 w-3 text-slate-500 dark:text-slate-400" />
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
-                  className="w-64 bg-white dark:bg-slate-900/95 backdrop-blur-xl border-slate-200 dark:border-slate-700/50 p-1"
+                  className="w-64 border-border bg-popover/95 backdrop-blur-xl p-1"
                 >
                   {!hasPersona && (
-                    <div className="px-2 py-2 mb-1 text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700/50">
+                    <div className="mb-1 border-b border-border px-2 py-2 text-xs text-muted-foreground">
                       Choose how you use EIPsInsight
                     </div>
                   )}
@@ -184,12 +181,12 @@ export default function Navbar() {
                           isSelected && "bg-primary/10 text-primary"
                         )}
                       >
-                        <Icon className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-slate-500 dark:text-slate-400")} />
+                        <Icon className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
                         <div className="flex flex-col">
-                          <span className={cn("text-sm", isSelected ? "text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-300")}>
+                          <span className={cn("text-sm", isSelected ? "text-foreground" : "text-muted-foreground")}>
                             {meta.shortLabel}
                           </span>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-500 leading-tight">
+                          <span className="text-[10px] leading-tight text-muted-foreground/90">
                             {meta.description.slice(0, 50)}...
                           </span>
                         </div>
@@ -212,24 +209,24 @@ export default function Navbar() {
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-300/90 bg-white dark:border-slate-700/70 dark:bg-slate-900 hover:border-primary/50 dark:hover:border-primary/30 p-0 transition-all">
+                  <button className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card p-0 transition-all hover:border-primary/50 hover:bg-muted/60">
                     <ProfileAvatar user={session.user} size="xs" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
-                  className="w-64 overflow-hidden rounded-xl border border-slate-200 dark:border-primary/30 bg-white/95 dark:bg-slate-950/95 p-0 shadow-xl dark:shadow-[0_15px_60px_rgb(var(--persona-accent-rgb)/0.18)] backdrop-blur-xl"
+                  className="w-64 overflow-hidden rounded-xl border border-border bg-popover/95 p-0 shadow-xl backdrop-blur-xl"
                 >
                   {/* Header */}
-                  <div className="relative border-b border-slate-200 dark:border-primary/20 bg-slate-50 dark:bg-slate-900/70 px-4 py-3">
+                  <div className="relative border-b border-border bg-muted/40 px-4 py-3">
                     <div className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-primary/40 to-transparent" />
                     <div className="flex items-center gap-3">
                       <ProfileAvatar user={session.user} size="md" />
                       <div className="flex flex-col min-w-0">
-                        <span className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                        <span className="truncate text-sm font-medium text-foreground">
                           {userName}
                         </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                        <span className="text-xs text-muted-foreground">
                           Signed in
                         </span>
                       </div>
@@ -239,14 +236,14 @@ export default function Navbar() {
                   {/* Menu Items */}
                   <div className="py-1">
                     <DropdownMenuItem asChild>
-                      <Link href="/profile" className="flex items-center gap-2 px-4 py-2 text-slate-700 dark:text-slate-100">
+                      <Link href="/profile" className="flex items-center gap-2 px-4 py-2 text-foreground">
                         <Settings2 className="h-4 w-4 text-primary" />
                         <span className="text-sm">Account</span>
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator className="mx-2 my-1 border-slate-200 dark:border-primary/20" />
+                    <DropdownMenuSeparator className="mx-2 my-1 border-border" />
                     <DropdownMenuItem
-                      className="flex items-center gap-2 px-4 py-2 text-slate-700 dark:text-slate-100"
+                      className="flex items-center gap-2 px-4 py-2 text-foreground"
                       onClick={async () => {
                         await authClient.signOut();
                         window.location.href = "/";
@@ -271,7 +268,7 @@ export default function Navbar() {
                 height={24}
                 unoptimized
               />
-              <span className="dec-title font-semibold text-slate-900 dark:text-white text-sm">
+              <span className="dec-title text-sm font-semibold text-foreground">
                 EIPsInsight
               </span>
             </Link>
@@ -282,8 +279,8 @@ export default function Navbar() {
               onClick={() => setMobileOpen(!mobileOpen)}
               className={cn(
                 "inline-flex items-center justify-center rounded-lg p-2 transition-colors",
-                "text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white",
-                mobileOpen && "bg-slate-100 dark:bg-slate-800/50"
+                "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                mobileOpen && "bg-muted/70 text-foreground"
               )}
             >
               {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -295,19 +292,19 @@ export default function Navbar() {
 
       {/* MOBILE PANEL */}
       {mobileOpen && (
-        <div className="border-t border-slate-200 dark:border-primary/20 bg-white dark:bg-slate-950/98 backdrop-blur-xl md:hidden">
+        <div className="border-t border-border bg-background/98 backdrop-blur-xl md:hidden">
           <div className="space-y-3 px-4 py-4">
             {/* Mobile Search */}
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-primary/80" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
                 placeholder="Search EIPs, ERCs, authors…"
                 className={cn(
-                  "w-full rounded-lg border border-slate-300 dark:border-primary/30 bg-slate-50 dark:bg-black/40",
-                  "pl-10 pr-4 py-2.5 text-sm text-slate-900 dark:text-slate-200",
-                  "placeholder:text-slate-500 dark:placeholder:text-slate-400",
-                  "focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  "w-full rounded-lg border border-border bg-muted/50",
+                  "px-10 py-2.5 text-sm text-foreground",
+                  "placeholder:text-muted-foreground",
+                  "focus:outline-none focus:ring-2 focus:ring-ring/40"
                 )}
               />
             </div>
@@ -325,8 +322,8 @@ export default function Navbar() {
                       "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-all",
                       "border",
                       isActive
-                        ? "border-primary/50 bg-primary/10 text-primary dark:text-white font-medium"
-                        : "border-slate-300 dark:border-slate-700/50 bg-slate-100 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 hover:border-primary/40 dark:hover:border-primary/30 hover:bg-slate-200 dark:hover:bg-slate-800/50"
+                        ? "border-primary/50 bg-primary/10 text-foreground font-medium"
+                        : "border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:bg-muted/70 hover:text-foreground"
                     )}
                   >
                     <Icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-primary/80")} />
@@ -348,7 +345,7 @@ export default function Navbar() {
             )}
 
             {/* Mobile Persona + Auth Row */}
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/50">
+            <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
               {/* Persona */}
               {FEATURES.PERSONA_SWITCHER && isHydrated && (
                 <DropdownMenu>
@@ -357,7 +354,7 @@ export default function Navbar() {
                       className={cn(
                         "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm",
                         hasPersona
-                          ? "border-slate-300 dark:border-slate-700/50 bg-slate-100 dark:bg-slate-800/30 text-slate-600 dark:text-slate-300"
+                          ? "border-border bg-muted/60 text-muted-foreground"
                           : "border-primary/40 bg-primary/10 text-primary"
                       )}
                     >
@@ -369,10 +366,10 @@ export default function Navbar() {
                       ) : (
                         <span className="text-xs font-medium">Select persona</span>
                       )}
-                      <ChevronDown className="h-3 w-3 text-slate-500 dark:text-slate-400" />
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-48 bg-white dark:bg-slate-900/95 backdrop-blur-xl border-slate-200 dark:border-slate-700/50">
+                  <DropdownMenuContent className="w-48 border-border bg-popover/95 backdrop-blur-xl">
                     {PERSONA_LIST.map((personaId) => {
                       const meta = PERSONAS[personaId];
                       const Icon = meta.icon;
@@ -383,8 +380,8 @@ export default function Navbar() {
                           onClick={() => handlePersonaChange(personaId)}
                           className={cn("flex items-center gap-2", isSelected && "bg-primary/10 text-primary")}
                         >
-                          <Icon className={cn("h-4 w-4", isSelected ? "text-primary" : "text-slate-500 dark:text-slate-400")} />
-                          <span className={isSelected ? "text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-300"}>{meta.shortLabel}</span>
+                          <Icon className={cn("h-4 w-4", isSelected ? "text-primary" : "text-muted-foreground")} />
+                          <span className={isSelected ? "text-foreground" : "text-muted-foreground"}>{meta.shortLabel}</span>
                         </DropdownMenuItem>
                       );
                     })}
@@ -403,7 +400,7 @@ export default function Navbar() {
                 </Button>
               ) : (
                 <div className="flex items-center gap-2">
-                  <Link href="/profile" className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                  <Link href="/profile" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
                     <ProfileAvatar user={session.user} size="sm" />
                     <span className="truncate max-w-[80px]">{session.user.name || "Account"}</span>
                   </Link>

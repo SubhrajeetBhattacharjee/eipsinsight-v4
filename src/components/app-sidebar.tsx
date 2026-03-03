@@ -594,12 +594,12 @@ function AppSidebarContent() {
           asChild
           isActive={isActive}
           className={cn(
-            "rounded-md py-1.5 transition-all duration-200",
-            "hover:bg-muted/60 hover:text-foreground hover:translate-x-0.5",
+            "rounded-md py-1.5 motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]",
+            "hover:bg-muted/60 hover:text-foreground motion-safe:hover:translate-x-0.5",
             "border border-transparent hover:border-border",
             "data-[active=true]:!bg-primary/15 data-[active=true]:!text-foreground",
             isActive &&
-              "bg-primary/10 text-foreground font-medium border-primary/30"
+              "bg-primary/10 text-foreground font-medium border-primary/30 shadow-[0_0_0_1px_rgb(var(--persona-accent-rgb)/0.16)]"
           )}
         >
           <Link
@@ -646,12 +646,12 @@ function AppSidebarContent() {
               <SidebarMenuButton
                 tooltip={state === "collapsed" ? item.title : undefined}
                 className={cn(
-                  "group relative overflow-hidden rounded-lg transition-all duration-300",
-                  "hover:bg-muted/60",
+                  "group relative overflow-hidden rounded-lg motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]",
+                  "hover:bg-muted/60 motion-safe:hover:translate-x-0.5",
                   "border border-transparent",
                   "data-[active=true]:!bg-primary/15 data-[active=true]:!text-foreground",
                   (isItemOpen || isHighlighted) &&
-                    "bg-primary/10 border-primary/30",
+                    "bg-primary/10 border-primary/30 shadow-[0_0_0_1px_rgb(var(--persona-accent-rgb)/0.16)]",
                   state === "collapsed" &&
                     "w-11 h-11 p-0 flex items-center justify-center"
                 )}
@@ -688,7 +688,12 @@ function AppSidebarContent() {
               </SidebarMenuButton>
             </CollapsibleTrigger>
             {state === "expanded" && (
-              <CollapsibleContent>
+              <CollapsibleContent
+                className={cn(
+                  "overflow-hidden",
+                  "data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up"
+                )}
+              >
                 <SidebarMenuSub className="ml-0 border-l-2 border-border/80 pl-6 pt-2">
                   {item.items?.map(renderSubItem)}
                 </SidebarMenuSub>
@@ -707,12 +712,12 @@ function AppSidebarContent() {
           isActive={isActive}
           tooltip={state === "collapsed" ? item.title : undefined}
           className={cn(
-            "group relative overflow-hidden rounded-lg transition-all duration-300",
-            "hover:bg-muted/60 hover:translate-x-0.5",
+            "group relative overflow-hidden rounded-lg motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]",
+            "hover:bg-muted/60 motion-safe:hover:translate-x-0.5",
             "border border-transparent",
             "data-[active=true]:!bg-primary/15 data-[active=true]:!text-foreground",
             isActive &&
-              "bg-primary/10 border-primary/40",
+              "bg-primary/10 border-primary/40 shadow-[0_0_0_1px_rgb(var(--persona-accent-rgb)/0.16)]",
             state === "collapsed" &&
               "w-11 h-11 p-0 flex items-center justify-center"
           )}
@@ -766,8 +771,8 @@ function AppSidebarContent() {
         <button
           onClick={handleToggle}
           className={cn(
-            "group flex items-center justify-center gap-2 rounded-lg transition-all duration-300",
-            "hover:bg-muted/60",
+            "group flex items-center justify-center gap-2 rounded-lg motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]",
+            "hover:bg-muted/60 motion-safe:hover:scale-[1.01]",
             "border border-border hover:border-primary/30",
             "bg-muted/40",
             state === "expanded" ? "w-full h-10 px-3" : "w-10 h-10"
