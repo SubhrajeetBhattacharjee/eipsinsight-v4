@@ -444,7 +444,7 @@ export default function PrivacyPolicyPage() {
               </p>
               <div className="rounded-lg bg-white/70 p-4 dark:bg-slate-900/70">
                 <p className="font-medium text-slate-900 dark:text-slate-100">
-                  Email: <a href="mailto:privacy@eipsinsight.com" className="text-cyan-700 hover:underline dark:text-cyan-300">privacy@eipsinsight.com</a>
+                  Email: <a href="mailto:dev@avarch.com" className="text-cyan-700 hover:underline dark:text-cyan-300">dev@avarch.com</a>
                 </p>
               </div>
             </div>

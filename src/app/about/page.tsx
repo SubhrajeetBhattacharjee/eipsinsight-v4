@@ -277,21 +277,10 @@ export default function AboutPage() {
                   General Inquiries:
                 </p>
                 <a
-                  href="mailto:hello@eipsinsight.com"
+                  href="mailto:dev@avarch.com"
                   className="text-cyan-700 hover:underline dark:text-cyan-300"
                 >
-                  hello@eipsinsight.com
-                </a>
-              </div>
-              <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-800/50">
-                <p className="mb-2 text-sm font-medium text-slate-900 dark:text-slate-100">
-                  Privacy & Security:
-                </p>
-                <a
-                  href="mailto:privacy@eipsinsight.com"
-                  className="text-cyan-700 hover:underline dark:text-cyan-300"
-                >
-                  privacy@eipsinsight.com
+                  dev@avarch.com
                 </a>
               </div>
             </div>
