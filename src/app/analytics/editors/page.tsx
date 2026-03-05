@@ -6,6 +6,7 @@ import { useAnalytics, useAnalyticsExport } from "../analytics-layout-client";
 import { client } from "@/lib/orpc";
 import { Loader2, UserCheck, Clock, FileText, Download, AlertCircle, FileCheck, Zap } from "lucide-react";
 import { ContributorHeatmap } from "@/components/analytics/ContributorHeatmap";
+import { AnalyticsAnnotation } from "@/components/analytics/AnalyticsAnnotation";
 import {
   ChartContainer,
   ChartTooltip,
@@ -425,6 +426,9 @@ export default function EditorsAnalyticsPage() {
         <div>
           <h3 className="mb-3 text-sm font-medium text-muted-foreground">Daily Activity Pattern</h3>
           <ContributorHeatmap data={dailyActivity} />
+          <AnalyticsAnnotation>
+            Editor activity reflects proposal processing volume and editorial engagement over time.
+          </AnalyticsAnnotation>
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
 import { StatusTransitionStackedChart } from "@/components/analytics/StatusTransitionStackedChart";
+import { AnalyticsAnnotation } from "@/components/analytics/AnalyticsAnnotation";
 
 const STATUS_COLORS: Record<string, string> = {
   Draft: "#64748b",
@@ -520,12 +521,17 @@ function DrilldownPageContent() {
               </div>
 
               {statusTransitionData.length > 0 && (
-                <StatusTransitionStackedChart
-                  data={statusTransitionData}
-                  colors={STATUS_COLORS}
-                  title="Proposal Status Distribution"
-                  description={`Current snapshot of proposal counts across all statuses for ${monthLabel(month)}`}
-                />
+                <>
+                  <StatusTransitionStackedChart
+                    data={statusTransitionData}
+                    colors={STATUS_COLORS}
+                    title="Proposal Status Distribution"
+                    description={`Current snapshot of proposal counts across all statuses for ${monthLabel(month)}`}
+                  />
+                  <AnalyticsAnnotation>
+                    Status transitions reveal the lifecycle of proposals from Draft to Final, highlighting review bottlenecks and approval flows.
+                  </AnalyticsAnnotation>
+                </>
               )}
 
               <div className="rounded-xl border border-border bg-card p-4">

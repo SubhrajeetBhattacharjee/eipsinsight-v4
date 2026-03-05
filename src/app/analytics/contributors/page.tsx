@@ -6,6 +6,7 @@ import { client } from "@/lib/orpc";
 import { Loader2, Users, Activity, Zap, Database, AlertCircle } from "lucide-react";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
 import { ContributorHeatmap } from "@/components/analytics/ContributorHeatmap";
+import { AnalyticsAnnotation } from "@/components/analytics/AnalyticsAnnotation";
 import {
   ChartContainer,
   ChartTooltip,
@@ -329,6 +330,9 @@ export default function ContributorsAnalyticsPage() {
           <LastUpdated timestamp={dataUpdatedAt} />
         </div>
         <ContributorHeatmap data={dailyActivity} />
+        <AnalyticsAnnotation>
+          Activity patterns reveal contributor engagement trends across commits, reviews, and PR interactions.
+        </AnalyticsAnnotation>
       </div>
 
       {/* Activity by Type + Activity by Repo */}

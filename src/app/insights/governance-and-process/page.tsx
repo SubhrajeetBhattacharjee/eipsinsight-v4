@@ -7,6 +7,7 @@ import ReactECharts from "echarts-for-react";
 import { client } from "@/lib/orpc";
 import { PageHeader, SectionSeparator } from "@/components/header";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
+import { AnalyticsAnnotation } from "@/components/analytics/AnalyticsAnnotation";
 
 const STATE_ORDER = ["STALLED", "WAITING_ON_EDITOR", "WAITING_ON_AUTHOR", "MERGED", "CLOSED"] as const;
 const STATE_COLORS: Record<string, string> = {
@@ -452,6 +453,9 @@ export default function GovernanceProcessPage() {
                     </div>
                   ))}
                 </div>
+                <AnalyticsAnnotation>
+                  Governance states indicate current PR status—tracking proposals awaiting editor review, author updates, or in stalled condition.
+                </AnalyticsAnnotation>
                 <div className="mt-2.5 border-t border-border/60 pt-3 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground/90">EIPsInsight.com</span>
                   <span className="mx-1.5">•</span>

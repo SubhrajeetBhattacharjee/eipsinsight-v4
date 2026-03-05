@@ -6,6 +6,7 @@ import { client } from "@/lib/orpc";
 import { Loader2, Users, Clock, MessageSquare, AlertCircle, Search, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
 import { ReviewerFocusMatrix } from "@/components/analytics/ReviewerFocusMatrix";
+import { AnalyticsAnnotation } from "@/components/analytics/AnalyticsAnnotation";
 import {
   Tooltip,
   TooltipTrigger,
@@ -497,6 +498,9 @@ export default function ReviewersAnalyticsPage() {
           onPageChange={setFocusMatrixPage}
           itemsPerPage={5}
         />
+        <AnalyticsAnnotation>
+          Repository focus patterns highlight where reviewers concentrate their efforts across EIPs, ERCs, and RIPs.
+        </AnalyticsAnnotation>
       </div>
 
       {/* Monthly Trend + Cycles per PR */}
