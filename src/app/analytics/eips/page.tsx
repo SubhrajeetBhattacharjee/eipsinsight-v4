@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ReactECharts from "echarts-for-react";
+import { useTheme } from "next-themes";
 import {
   Activity,
   AlertCircle,
@@ -154,6 +155,7 @@ type RecentChangeRow = {
 
 export default function EIPsAnalyticsPage() {
   const { timeRange, repoFilter } = useAnalytics();
+  const { resolvedTheme } = useTheme();
   const repoParam = repoFilter === "all" ? undefined : repoFilter;
 
   const [loading, setLoading] = useState(true);
@@ -367,6 +369,27 @@ export default function EIPsAnalyticsPage() {
     const pctMap = new Map(rows.map((r) => [r.name, total > 0 ? ((r.value / total) * 100).toFixed(1) : "0.0"]));
     return {
       backgroundColor: "transparent",
+      // Clear any previously merged center graphics from older option versions.
+      graphic: [],
+      title: [
+        {
+          text: total.toLocaleString(),
+          subtext: "Total Proposals",
+          left: "34%",
+          top: "46%",
+          textAlign: "center",
+          textStyle: {
+            color: "var(--foreground)",
+            fontSize: 34,
+            fontWeight: 700,
+          },
+          subtextStyle: {
+            color: "var(--muted-foreground)",
+            fontSize: 12,
+            fontWeight: 500,
+          },
+        },
+      ],
       tooltip: {
         trigger: "item",
         confine: true,
@@ -394,41 +417,6 @@ export default function EIPsAnalyticsPage() {
           data: rows,
         },
       ],
-      graphic: [
-        {
-          type: "group",
-          left: "34%",
-          top: "50%",
-          children: [
-            {
-              type: "text",
-              style: {
-                x: 0,
-                y: -10,
-                text: total.toLocaleString(),
-                fill: "var(--foreground)",
-                fontSize: 34,
-                fontWeight: 700,
-                textAlign: "center",
-                textVerticalAlign: "middle",
-              },
-            },
-            {
-              type: "text",
-              style: {
-                x: 0,
-                y: 34,
-                text: "Total Proposals",
-                fill: "var(--muted-foreground)",
-                fontSize: 12,
-                fontWeight: 500,
-                textAlign: "center",
-                textVerticalAlign: "middle",
-              },
-            },
-          ],
-        },
-      ],
     };
   }, [catBreakdown, total]);
 
@@ -453,6 +441,33 @@ export default function EIPsAnalyticsPage() {
         axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
         splitLine: { lineStyle: { color: "rgba(148,163,184,0.18)" } },
       },
+      dataZoom: [
+        {
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "none",
+          start: 0,
+          end: 100,
+        },
+        {
+          type: "slider",
+          xAxisIndex: 0,
+          height: 18,
+          bottom: 0,
+          borderColor: "rgba(148,163,184,0.22)",
+          backgroundColor: "rgba(148,163,184,0.08)",
+          fillerColor: "rgba(34,211,238,0.22)",
+          handleSize: 10,
+          handleStyle: {
+            color: "#22D3EE",
+            borderColor: "#22D3EE",
+          },
+          moveHandleSize: 0,
+          showDetail: false,
+          start: 0,
+          end: 100,
+        },
+      ],
       series: [
         { name: "Draft", type: "line", smooth: true, symbol: "none", data: throughput.map((r) => Number(r.draft || 0)), lineStyle: { width: 2, color: STATUS_COLORS.Draft }, areaStyle: { color: `${STATUS_COLORS.Draft}1A` } },
         { name: "Review", type: "line", smooth: true, symbol: "none", data: throughput.map((r) => Number(r.review || 0)), lineStyle: { width: 2, color: STATUS_COLORS.Review }, areaStyle: { color: `${STATUS_COLORS.Review}1A` } },
@@ -477,6 +492,10 @@ export default function EIPsAnalyticsPage() {
   }, [crossTab]);
 
   const matrixOption = useMemo(() => {
+    const isDark = resolvedTheme === "dark";
+    const visualRamp = isDark
+      ? ["#1f2937", "#334155", "#60A5FA", "#22D3EE", "#34D399"]
+      : ["#E2E8F0", "#BFDBFE", "#93C5FD", "#22D3EE", "#10B981"];
     return {
       backgroundColor: "transparent",
       tooltip: {
@@ -491,13 +510,17 @@ export default function EIPsAnalyticsPage() {
       xAxis: {
         type: "category",
         data: STATUS_ORDER,
-        axisLabel: { color: "var(--muted-foreground)", fontSize: 11, interval: 0 },
+        axisLabel: { color: "var(--muted-foreground)", fontSize: 11, interval: 0, fontWeight: 600 },
+        axisLine: { lineStyle: { color: "rgba(148,163,184,0.25)" } },
+        axisTick: { show: false },
         splitArea: { show: false },
       },
       yAxis: {
         type: "category",
         data: matrixData.categories,
-        axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
+        axisLabel: { color: "var(--foreground)", fontSize: 11, fontWeight: 500 },
+        axisLine: { show: false },
+        axisTick: { show: false },
       },
       visualMap: {
         min: 0,
@@ -507,31 +530,42 @@ export default function EIPsAnalyticsPage() {
         left: "center",
         bottom: 0,
         textStyle: { color: "var(--muted-foreground)", fontSize: 10 },
-        inRange: { color: ["#0f172a", "#1d4ed8", "#22d3ee"] },
+        inRange: { color: visualRamp },
       },
       series: [
         {
           type: "heatmap",
           data: matrixData.heat,
+          itemStyle: {
+            borderColor: isDark ? "rgba(15,23,42,0.42)" : "rgba(148,163,184,0.38)",
+            borderWidth: 1,
+            borderRadius: 4,
+          },
           label: {
             show: true,
             fontSize: 10,
-            color: "var(--foreground)",
+            rich: {
+              hi: { color: isDark ? "#e2e8f0" : "#0f172a", fontWeight: 700 },
+              lo: { color: isDark ? "#94a3b8" : "#64748b", fontWeight: 500 },
+            },
             formatter: (p: { data: [number, number, number] }) => {
               const v = Number(p.data[2]);
-              return v > 0 ? String(v) : "";
+              if (v <= 0) return "";
+              return v >= (matrixData.maxValue || 1) * 0.45 ? `{hi|${v}}` : `{lo|${v}}`;
             },
           },
           emphasis: {
             itemStyle: {
-              borderColor: "rgba(255,255,255,0.5)",
-              borderWidth: 1,
+              borderColor: isDark ? "rgba(226,232,240,0.45)" : "rgba(15,23,42,0.25)",
+              borderWidth: 1.5,
+              shadowBlur: 12,
+              shadowColor: isDark ? "rgba(34,211,238,0.25)" : "rgba(59,130,246,0.18)",
             },
           },
         },
       ],
     };
-  }, [matrixData]);
+  }, [matrixData, resolvedTheme]);
 
   const conversionRows = useMemo(() => {
     const stageMap = new Map<string, number>();
@@ -709,65 +743,13 @@ export default function EIPsAnalyticsPage() {
           action={<CSVBtn onClick={exportCompositionCSV} label="Detailed CSV" />}
         >
           <div className="h-[320px] w-full">
-            <ReactECharts option={categoryDonutOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+            <ReactECharts
+              option={categoryDonutOption}
+              style={{ height: "100%", width: "100%" }}
+              opts={{ renderer: "svg" }}
+              notMerge
+            />
           </div>
-          <ChartFooter nextUpdateAt={nextUpdateAt} />
-        </Section>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Section
-          title="Lifecycle Conversion"
-          icon={<ArrowRight className="h-4 w-4" />}
-          action={<CSVBtn onClick={exportLifecycleCSV} label="Detailed CSV" />}
-        >
-          <div className="space-y-2">
-            {conversionRows.map((row, i) => (
-              <div key={row.stage} className="rounded-lg border border-border bg-muted/30 p-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-foreground">{i + 1}. {row.stage}</span>
-                  <span className="tabular-nums text-foreground/90">{row.count.toLocaleString()}</span>
-                </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${Math.max(3, Math.min(100, row.conversion))}%`, backgroundColor: STATUS_COLORS[row.stage] || "#64748b" }}
-                  />
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{row.conversion.toFixed(1)}% of previous stage</p>
-              </div>
-            ))}
-          </div>
-          <ChartFooter nextUpdateAt={nextUpdateAt} />
-        </Section>
-
-        <Section
-          title="Decision Speed"
-          icon={<Timer className="h-4 w-4" />}
-          action={<CSVBtn onClick={exportDecisionSpeedCSV} label="Detailed CSV" />}
-        >
-          {!velocity?.transitions?.length ? (
-            <p className="text-sm text-muted-foreground">No velocity data available.</p>
-          ) : (
-            <div className="space-y-2">
-              {velocity.transitions.map((t) => {
-                const color = STATUS_COLORS[t.to] || "#64748b";
-                return (
-                  <div key={`${t.from}-${t.to}`} className="rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-foreground">
-                        <span className="text-muted-foreground">{t.from}</span>
-                        <ArrowRight className="mx-1 inline h-3 w-3 text-muted-foreground" />
-                        <span style={{ color }}>{t.to}</span>
-                      </p>
-                      <p className="text-sm font-semibold tabular-nums text-foreground">{t.medianDays != null ? `${t.medianDays}d` : "—"}</p>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{(t.count || 0).toLocaleString()} transitions in selected range</p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
           <ChartFooter nextUpdateAt={nextUpdateAt} />
         </Section>
       </div>
