@@ -24,7 +24,7 @@ const nodes: Array<{
     detail: 'Entry point for candidate EIPs being pitched for an upcoming upgrade.',
     className:
       'border-amber-500/35 bg-amber-50/90 text-amber-800 dark:bg-amber-500/12 dark:text-amber-200',
-    position: { x: 102, y: 66, w: 104, h: 38 },
+    position: { x: 146, y: 70, w: 88, h: 32 },
   },
   {
     key: 'cfi',
@@ -34,7 +34,7 @@ const nodes: Array<{
     detail: 'Under active review and compared against competing upgrade priorities.',
     className:
       'border-violet-500/35 bg-violet-50/90 text-violet-800 dark:bg-violet-500/12 dark:text-violet-200',
-    position: { x: 286, y: 66, w: 104, h: 38 },
+    position: { x: 326, y: 70, w: 88, h: 32 },
   },
   {
     key: 'sfi',
@@ -44,7 +44,7 @@ const nodes: Array<{
     detail: 'Accepted into the upgrade scope pending final implementation and testing.',
     className:
       'border-orange-500/35 bg-orange-50/90 text-orange-800 dark:bg-orange-500/12 dark:text-orange-200',
-    position: { x: 470, y: 66, w: 104, h: 38 },
+    position: { x: 506, y: 70, w: 88, h: 32 },
   },
   {
     key: 'included',
@@ -54,7 +54,7 @@ const nodes: Array<{
     detail: 'Final state once the EIP ships as part of the network upgrade.',
     className:
       'border-emerald-500/35 bg-emerald-50/90 text-emerald-800 dark:bg-emerald-500/12 dark:text-emerald-200',
-    position: { x: 654, y: 66, w: 112, h: 38 },
+    position: { x: 686, y: 70, w: 94, h: 32 },
   },
   {
     key: 'dfi',
@@ -64,18 +64,18 @@ const nodes: Array<{
     detail: 'Exit path if the EIP is deferred, dropped, or rejected during planning.',
     className:
       'border-rose-500/35 bg-rose-50/90 text-rose-800 dark:bg-rose-500/12 dark:text-rose-200',
-    position: { x: 362, y: 148, w: 112, h: 38 },
+    position: { x: 416, y: 138, w: 94, h: 32 },
   },
 ];
 
 const edges = [
-  { from: 'start', to: 'pfi', path: 'M36 85 C54 85, 74 85, 102 85' },
-  { from: 'pfi', to: 'cfi', path: 'M206 85 C228 80, 262 80, 286 85' },
-  { from: 'cfi', to: 'sfi', path: 'M390 85 C412 80, 446 80, 470 85' },
-  { from: 'sfi', to: 'included', path: 'M574 85 C598 80, 632 80, 654 85' },
-  { from: 'pfi', to: 'dfi', path: 'M132 104 C168 132, 252 148, 362 166' },
-  { from: 'cfi', to: 'dfi', path: 'M338 104 C340 120, 346 136, 370 148' },
-  { from: 'sfi', to: 'dfi', path: 'M522 104 C510 124, 496 138, 474 150' },
+  { from: 'start', to: 'pfi', path: 'M82 86 C102 86, 122 86, 146 86' },
+  { from: 'pfi', to: 'cfi', path: 'M234 86 C256 81, 298 81, 326 86' },
+  { from: 'cfi', to: 'sfi', path: 'M414 86 C436 81, 478 81, 506 86' },
+  { from: 'sfi', to: 'included', path: 'M594 86 C620 81, 658 81, 686 86' },
+  { from: 'pfi', to: 'dfi', path: 'M170 102 C226 126, 320 140, 416 154' },
+  { from: 'cfi', to: 'dfi', path: 'M370 102 C372 118, 382 130, 426 140' },
+  { from: 'sfi', to: 'dfi', path: 'M542 102 C530 120, 520 130, 500 140' },
 ];
 
 function NodeCard({
@@ -100,7 +100,7 @@ function NodeCard({
             className
           )}
         >
-          <div className="dec-title text-[13px] font-semibold leading-none tracking-tight transition-transform group-hover:scale-[1.03] sm:text-sm">
+          <div className="dec-title text-xs font-semibold leading-none tracking-tight transition-transform group-hover:scale-[1.03] sm:text-[13px]">
             {short}
           </div>
         </button>
@@ -116,7 +116,8 @@ function NodeCard({
 }
 
 export function EipInclusionProcessGraph() {
-  const [zoom, setZoom] = useState(1);
+  const defaultZoom = 0.82;
+  const [zoom, setZoom] = useState(defaultZoom);
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden rounded-xl bg-card/40">
@@ -133,7 +134,7 @@ export function EipInclusionProcessGraph() {
           <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1">
             <button
               type="button"
-              onClick={() => setZoom((value) => Math.max(0.85, value - 0.1))}
+              onClick={() => setZoom((value) => Math.max(0.72, value - 0.08))}
               className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
               aria-label="Zoom out"
             >
@@ -141,7 +142,7 @@ export function EipInclusionProcessGraph() {
             </button>
             <button
               type="button"
-              onClick={() => setZoom(1)}
+              onClick={() => setZoom(defaultZoom)}
               className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
               aria-label="Reset zoom"
             >
@@ -149,7 +150,7 @@ export function EipInclusionProcessGraph() {
             </button>
             <button
               type="button"
-              onClick={() => setZoom((value) => Math.min(1.2, value + 0.1))}
+              onClick={() => setZoom((value) => Math.min(1.08, value + 0.08))}
               className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
               aria-label="Zoom in"
             >
@@ -167,11 +168,11 @@ export function EipInclusionProcessGraph() {
 
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-gradient-to-br from-background via-background to-primary/[0.03] p-2">
           <div className="origin-center transition-transform duration-200" style={{ transform: `scale(${zoom})` }}>
-            <div className="relative h-[188px] w-[820px]">
+            <div className="relative h-[188px] w-[900px]">
               <svg
                 aria-hidden="true"
                 className="absolute inset-0 h-full w-full"
-                viewBox="0 0 820 188"
+                viewBox="0 0 900 188"
                 preserveAspectRatio="xMidYMid meet"
               >
                 <defs>
@@ -188,7 +189,7 @@ export function EipInclusionProcessGraph() {
                   </marker>
                 </defs>
 
-                <circle cx="24" cy="85" r="4" className="fill-primary/80" />
+                <circle cx="70" cy="86" r="4" className="fill-primary/80" />
 
                 {edges.map((edge) => (
                   <path
