@@ -12,7 +12,7 @@ export function DashboardPageHeader() {
     {
       icon: Layers,
       title: 'Category × Status',
-      description: 'Cross-tab matrix of proposals by category and lifecycle status with CSV exports',
+      description: 'Cross-tab matrix of proposals by category and lifecycle status with downloadable reports',
     },
     {
       icon: BarChart3,
@@ -26,8 +26,8 @@ export function DashboardPageHeader() {
     },
     {
       icon: Download,
-      title: 'Export Hub',
-      description: 'Download any breakdown as CSV for offline analysis',
+      title: 'Reports',
+      description: 'Download reports for offline analysis and team sharing',
     },
   ];
 
@@ -50,7 +50,7 @@ export function DashboardPageHeader() {
               transition={{ duration: 0.4, delay: 0.05 }}
               className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base"
             >
-              Ethereum proposals by category, status, and repository — with CSV exports.
+              Ethereum proposals by category, status, and repository — with downloadable reports.
               Powered by <span className="text-foreground/80">EIPsInsight</span>.
             </motion.p>
           </div>

@@ -19,6 +19,28 @@ import {
 import { client } from "@/lib/orpc";
 import { toast as sonnerToast } from "sonner";
 
+function ChartWatermark({ className = "", centered = false }: { className?: string; centered?: boolean }) {
+  if (centered) {
+    return (
+      <div
+        className={`pointer-events-none absolute inset-0 flex items-center justify-center ${className}`}
+      >
+        <span className="select-none text-sm font-medium tracking-[0.06em] text-foreground/12 dark:text-foreground/16 sm:text-base">
+          EIPsInsight.com
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`pointer-events-none absolute bottom-2 right-2 rounded border border-border/60 bg-background/65 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/90 ${className}`}
+    >
+      EIPsInsight
+    </div>
+  );
+}
+
 // Types for API responses
 interface ActiveProposals {
   total: number;
@@ -209,7 +231,7 @@ export default function ProtocolBento() {
   if (loading) {
     return (
       <section className="relative overflow-hidden py-16">
-        <div className="relative w-full max-w-full px-4 sm:px-6 lg:px-8 xl:px-12">
+        <div className="relative w-full max-w-full px-3 sm:px-4 lg:px-5 xl:px-6">
           <div className="flex items-center justify-center py-20">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary/40 border-t-transparent" />
           </div>
@@ -344,11 +366,11 @@ export default function ProtocolBento() {
                             a.download = "active-proposals-detailed.csv";
                             a.click();
                             URL.revokeObjectURL(url);
-                            toast.success("CSV Downloaded", {
+                            toast.success("Report Downloaded", {
                               description: `${filteredData.length} active proposals exported successfully`,
                             });
                           } catch (error) {
-                            console.error('Failed to download CSV:', error);
+                            console.error('Failed to download report:', error);
                             toast.error("Download Failed", {
                               description: "Could not export active proposals data",
                             });
@@ -553,11 +575,11 @@ export default function ProtocolBento() {
                           a.download = "eip-lifecycle-detailed.csv";
                           a.click();
                           URL.revokeObjectURL(url);
-                          toast.success("CSV Downloaded", {
+                          toast.success("Report Downloaded", {
                             description: `${data.length} lifecycle records exported successfully`,
                           });
                         } catch (error) {
-                          console.error('Failed to download CSV:', error);
+                          console.error('Failed to download report:', error);
                           toast.error("Download Failed", {
                             description: "Could not export lifecycle data",
                           });
@@ -576,26 +598,29 @@ export default function ProtocolBento() {
               {/* Bar chart - no scroll */}
               {lifecycleData.length > 0 ? (
                 <div className="flex flex-1 min-h-0 flex-col">
-                  <ChartContainer
-                    config={{ count: { label: "Proposals", color: "#34d399" } }}
-                    className="h-full w-full min-h-[140px]"
-                  >
-                    <BarChart
-                      data={lifecycleData.map((d) => ({ stage: d.stage, count: d.count, fill: ({ cyan: "#22d3ee", blue: "#60a5fa", amber: "#fbbf24", emerald: "#34d399", slate: "#64748b", violet: "#a78bfa", red: "#f87171" } as Record<string, string>)[d.color] ?? "#94a3b8" }))}
-                      layout="vertical"
-                      margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
+                  <div className="relative h-full">
+                    <ChartContainer
+                      config={{ count: { label: "Proposals", color: "#34d399" } }}
+                      className="h-full w-full min-h-[140px]"
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                      <XAxis type="number" tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={false} />
-                      <YAxis type="category" dataKey="stage" width={52} tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
-                      <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
-                      <Bar dataKey="count" radius={[0, 4, 4, 0]} layout="vertical">
-                        {lifecycleData.map((d, i) => (
-                          <Cell key={d.stage} fill={({ cyan: "#22d3ee", blue: "#60a5fa", amber: "#fbbf24", emerald: "#34d399", slate: "#64748b", violet: "#a78bfa", red: "#f87171" } as Record<string, string>)[d.color] ?? "#94a3b8"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ChartContainer>
+                      <BarChart
+                        data={lifecycleData.map((d) => ({ stage: d.stage, count: d.count, fill: ({ cyan: "#22d3ee", blue: "#60a5fa", amber: "#fbbf24", emerald: "#34d399", slate: "#64748b", violet: "#a78bfa", red: "#f87171" } as Record<string, string>)[d.color] ?? "#94a3b8" }))}
+                        layout="vertical"
+                        margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                        <XAxis type="number" tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={false} />
+                        <YAxis type="category" dataKey="stage" width={52} tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
+                        <Bar dataKey="count" radius={[0, 4, 4, 0]} layout="vertical">
+                          {lifecycleData.map((d) => (
+                            <Cell key={d.stage} fill={({ cyan: "#22d3ee", blue: "#60a5fa", amber: "#fbbf24", emerald: "#34d399", slate: "#64748b", violet: "#a78bfa", red: "#f87171" } as Record<string, string>)[d.color] ?? "#94a3b8"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ChartContainer>
+                    <ChartWatermark centered />
+                  </div>
                   <p className="mt-1 shrink-0 text-center text-[10px] text-muted-foreground">
                     Total {lifecycleData.reduce((s, d) => s + d.count, 0)} · Draft→Review→Last Call→Final
                   </p>
@@ -714,11 +739,11 @@ export default function ProtocolBento() {
                           a.download = "standards-composition-detailed.csv";
                           a.click();
                           URL.revokeObjectURL(url);
-                          toast.success("CSV Downloaded", {
+                          toast.success("Report Downloaded", {
                             description: `${filteredData.length} standards records exported successfully`,
                           });
                         } catch (error) {
-                          console.error('Failed to download CSV:', error);
+                          console.error('Failed to download report:', error);
                           toast.error("Download Failed", {
                             description: "Could not export standards composition data",
                           });
@@ -755,11 +780,6 @@ export default function ProtocolBento() {
                 <div className="relative flex flex-1 flex-col lg:flex-row items-center justify-center gap-6 lg:gap-10">
                   {/* Donut Chart */}
                   <div className="relative flex items-center justify-center">
-                    {/* EIPsInsight Branding */}
-                    <div className="absolute -bottom-2 right-2 text-[9px] font-medium text-slate-600/50">
-                      eipsinsight.com
-                    </div>
-                    
                     <ChartContainer
                       config={standardsChartConfig}
                       className="h-56 w-56 sm:h-64 sm:w-64 lg:h-72 lg:w-72"
@@ -871,6 +891,7 @@ export default function ProtocolBento() {
                     </Pie>
                   </PieChart>
                 </ChartContainer>
+                    <ChartWatermark />
                   </div>
                   
                   {/* Compact Interactive Legend */}
@@ -1055,6 +1076,7 @@ export default function ProtocolBento() {
                     />
                   </AreaChart>
                 </ChartContainer>
+                <ChartWatermark centered />
               </div>
               
               {/* Footer */}
@@ -1125,11 +1147,11 @@ export default function ProtocolBento() {
                             a.download = "recent-changes-detailed.csv";
                             a.click();
                             URL.revokeObjectURL(url);
-                            toast.success("CSV Downloaded", {
+                            toast.success("Report Downloaded", {
                               description: `${recentChanges.length} recent changes exported successfully`,
                             });
                           } catch (error) {
-                            console.error('Failed to download CSV:', error);
+                            console.error('Failed to download report:', error);
                             toast.error("Download Failed", {
                               description: "Could not export recent changes data",
                             });
@@ -1260,25 +1282,28 @@ export default function ProtocolBento() {
                 {decisionVelocity.transitions.length === 0 ? (
                   <p className="py-4 text-center text-sm text-slate-500">No transition data in the last 365 days</p>
                 ) : velocityChartMode === "line" ? (
-                  <ChartContainer
-                    config={{ days: { label: "Median days", color: "#34d399" } }}
-                    className="h-full w-full min-h-[160px]"
-                  >
-                    <LineChart
-                      data={decisionVelocity.transitions.map((t) => ({
-                        name: `${t.from}→${t.to}`,
-                        days: t.medianDays ?? 0,
-                        count: t.count,
-                      }))}
-                      margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
+                  <div className="relative h-full">
+                    <ChartContainer
+                      config={{ days: { label: "Median days", color: "#34d399" } }}
+                      className="h-full w-full min-h-[160px]"
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
-                      <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={false} />
-                      <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
-                      <Line type="monotone" dataKey="days" stroke="#34d399" strokeWidth={2} dot={{ fill: "#34d399", r: 3 }} name="Median days" />
-                    </LineChart>
-                  </ChartContainer>
+                      <LineChart
+                        data={decisionVelocity.transitions.map((t) => ({
+                          name: `${t.from}→${t.to}`,
+                          days: t.medianDays ?? 0,
+                          count: t.count,
+                        }))}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
+                        <Line type="monotone" dataKey="days" stroke="#34d399" strokeWidth={2} dot={{ fill: "#34d399", r: 3 }} name="Median days" />
+                      </LineChart>
+                    </ChartContainer>
+                    <ChartWatermark centered />
+                  </div>
                 ) : (
                   <>
                     {decisionVelocity.draftToFinalMedian > 0 && (
@@ -1381,11 +1406,11 @@ export default function ProtocolBento() {
                           a.download = "eip-last-call-watchlist.csv";
                           a.click();
                           URL.revokeObjectURL(url);
-                          toast.success("CSV Downloaded", {
+                          toast.success("Report Downloaded", {
                             description: `${lastCallWatchlist.length} Last Call proposals exported successfully`,
                           });
                         } catch (error) {
-                          console.error('Failed to download CSV:', error);
+                          console.error('Failed to download report:', error);
                           toast.error("Download Failed", {
                             description: "Could not export Last Call watchlist data",
                           });

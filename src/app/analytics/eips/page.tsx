@@ -88,7 +88,7 @@ function downloadCSV(headers: string[], rows: string[][], filename: string) {
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
-  toast.success("CSV downloaded", {
+  toast.success("Report downloaded", {
     description: filename,
   });
 }
@@ -105,7 +105,7 @@ function downloadObjectCSV(rows: Array<Record<string, unknown>>, filename: strin
   downloadCSV(headers, dataRows, filename);
 }
 
-function CSVBtn({ onClick, label = "Download CSV" }: { onClick: () => void; label?: string }) {
+function CSVBtn({ onClick, label = "Download Reports" }: { onClick: () => void; label?: string }) {
   return (
     <button
       onClick={onClick}
@@ -138,6 +138,16 @@ function ChartFooter({ nextUpdateAt }: { nextUpdateAt: Date | null }) {
           Next Update: {formatFooterDate(nextUpdateAt)}
         </span>
       </div>
+    </div>
+  );
+}
+
+function ChartWatermark() {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <span className="select-none text-sm font-medium tracking-[0.06em] text-foreground/12 dark:text-foreground/16 sm:text-base">
+        EIPsInsight.com
+      </span>
     </div>
   );
 }
@@ -277,11 +287,37 @@ export default function EIPsAnalyticsPage() {
     if (total === 0) return "No governance records available for the selected filter.";
     const biggest = [...statusDist].sort((a, b) => b.count - a.count)[0];
     const draftToFinal = velocity?.draftToFinalMedian;
-    const speedCopy = draftToFinal
-      ? `Median draft-to-final is ${draftToFinal} days.`
-      : "Median decision speed is still being computed.";
-    return `${biggest?.status || "Draft"} is the largest bucket (${biggest?.count?.toLocaleString() || 0}). Active pipeline is ${activeCount.toLocaleString()}, with ${stagnantCount.toLocaleString()} stalled proposals (${stagnantRate.toFixed(1)}%). ${speedCopy}`;
+    const biggestShare = total > 0 && biggest ? (biggest.count / total) * 100 : 0;
+    const speedCopy = draftToFinal ? `median draft-to-final is ${draftToFinal} days` : "decision speed is still being computed";
+    return `${biggest?.status || "Draft"} currently has the most proposals (${biggest?.count?.toLocaleString() || 0}, ${biggestShare.toFixed(1)}%). ${activeCount.toLocaleString()} proposals are still active, and ${stagnantCount.toLocaleString()} are stalled. ${speedCopy}.`;
   }, [activeCount, stagnantCount, stagnantRate, statusDist, total, velocity?.draftToFinalMedian]);
+
+  const healthBreakdown = useMemo(() => {
+    const biggest = [...statusDist].sort((a, b) => b.count - a.count)[0];
+    const pipelineShare = total > 0 ? (activeCount / total) * 100 : 0;
+    const stalledVsPipeline = activeCount > 0 ? (stagnantCount / activeCount) * 100 : 0;
+    const biggestShare = total > 0 && biggest ? (biggest.count / total) * 100 : 0;
+
+    const latest = throughput[throughput.length - 1];
+    const prev = throughput[throughput.length - 2];
+    const latestVolume = latest
+      ? Number(latest.draft || 0) + Number(latest.review || 0) + Number(latest.lastCall || 0) + Number(latest.final || 0)
+      : 0;
+    const prevVolume = prev
+      ? Number(prev.draft || 0) + Number(prev.review || 0) + Number(prev.lastCall || 0) + Number(prev.final || 0)
+      : 0;
+    const volumeDeltaPct = prevVolume > 0 ? ((latestVolume - prevVolume) / prevVolume) * 100 : null;
+
+    return {
+      biggestStatus: biggest?.status || "Draft",
+      biggestCount: biggest?.count || 0,
+      biggestShare,
+      pipelineShare,
+      stalledVsPipeline,
+      latestVolume,
+      volumeDeltaPct,
+    };
+  }, [activeCount, stagnantCount, statusDist, throughput, total]);
 
   const transitionFlows = useMemo(() => {
     return transitions
@@ -703,21 +739,32 @@ export default function EIPsAnalyticsPage() {
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{narrative}</p>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total Proposals</p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">{total.toLocaleString()}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Active Pipeline</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Active Proposals</p>
             <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">{activeCount.toLocaleString()}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{healthBreakdown.pipelineShare.toFixed(1)}% of all {total.toLocaleString()} proposals</p>
           </div>
           <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Finalization Rate</p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">{finalizationRate.toFixed(1)}%</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Stalled Proposals</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">{stagnantCount.toLocaleString()}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {healthBreakdown.stalledVsPipeline.toFixed(1)} stalled for every 100 active proposals
+            </p>
           </div>
           <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Median Time To Final</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Largest Status Group</p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">{healthBreakdown.biggestStatus}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {healthBreakdown.biggestCount.toLocaleString()} proposals ({healthBreakdown.biggestShare.toFixed(1)}%)
+            </p>
+          </div>
+          <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Median Decision Time</p>
             <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
               {velocity?.draftToFinalMedian ? `${velocity.draftToFinalMedian}d` : "—"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Latest month: {healthBreakdown.latestVolume.toLocaleString()} status changes
+              {healthBreakdown.volumeDeltaPct != null && ` (${healthBreakdown.volumeDeltaPct >= 0 ? "+" : ""}${healthBreakdown.volumeDeltaPct.toFixed(1)}% vs prior)`}
             </p>
           </div>
         </div>
@@ -727,10 +774,11 @@ export default function EIPsAnalyticsPage() {
         <Section
           title="Pipeline Status"
           icon={<TrendingUp className="h-4 w-4" />}
-          action={<CSVBtn onClick={exportPipelineCSV} label="Detailed CSV" />}
+          action={<CSVBtn onClick={exportPipelineCSV} label="Download Reports" />}
         >
-          <div className="h-[320px] w-full">
+          <div className="relative h-[320px] w-full">
             <ReactECharts option={pipelineOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+            <ChartWatermark />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
             <div className="rounded-md border border-border px-2 py-1">Draft backlog: {(statusCountMap.Draft || 0).toLocaleString()}</div>
@@ -744,15 +792,16 @@ export default function EIPsAnalyticsPage() {
         <Section
           title="Proposal Composition"
           icon={<Layers className="h-4 w-4" />}
-          action={<CSVBtn onClick={exportCompositionCSV} label="Detailed CSV" />}
+          action={<CSVBtn onClick={exportCompositionCSV} label="Download Reports" />}
         >
-          <div className="h-[320px] w-full">
+          <div className="relative h-[320px] w-full">
             <ReactECharts
               option={categoryDonutOption}
               style={{ height: "100%", width: "100%" }}
               opts={{ renderer: "svg" }}
               notMerge
             />
+            <ChartWatermark />
           </div>
           <ChartFooter nextUpdateAt={nextUpdateAt} />
         </Section>
@@ -761,13 +810,14 @@ export default function EIPsAnalyticsPage() {
       <Section
         title="Status Transition Flow"
         icon={<ArrowRight className="h-4 w-4" />}
-        action={<CSVBtn onClick={exportTransitionCSV} label="Detailed CSV" />}
+        action={<CSVBtn onClick={exportTransitionCSV} label="Download Reports" />}
       >
         {transitionFlows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No transition data available.</p>
         ) : (
-          <div className="h-[360px] w-full">
+          <div className="relative h-[360px] w-full">
             <ReactECharts option={sankeyOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+            <ChartWatermark />
           </div>
         )}
         <ChartFooter nextUpdateAt={nextUpdateAt} />
@@ -776,13 +826,14 @@ export default function EIPsAnalyticsPage() {
       <Section
         title="Monthly Governance Throughput"
         icon={<Activity className="h-4 w-4" />}
-        action={<CSVBtn onClick={exportThroughputCSV} label="Detailed CSV" />}
+        action={<CSVBtn onClick={exportThroughputCSV} label="Download Reports" />}
       >
         {throughput.length === 0 ? (
           <p className="text-sm text-muted-foreground">No monthly throughput available.</p>
         ) : (
-          <div className="h-[340px] w-full">
+          <div className="relative h-[340px] w-full">
             <ReactECharts option={throughputOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+            <ChartWatermark />
           </div>
         )}
         <ChartFooter nextUpdateAt={nextUpdateAt} />
@@ -791,13 +842,14 @@ export default function EIPsAnalyticsPage() {
       <Section
         title="Category × Status Heatmap"
         icon={<Layers className="h-4 w-4" />}
-        action={<CSVBtn onClick={exportCrossTab} label="Detailed CSV" />}
+        action={<CSVBtn onClick={exportCrossTab} label="Download Reports" />}
       >
         {matrixData.categories.length === 0 ? (
           <p className="text-sm text-muted-foreground">No category/status matrix data available.</p>
         ) : (
-          <div className="h-[420px] w-full">
+          <div className="relative h-[420px] w-full">
             <ReactECharts option={matrixOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+            <ChartWatermark />
           </div>
         )}
         <ChartFooter nextUpdateAt={nextUpdateAt} />

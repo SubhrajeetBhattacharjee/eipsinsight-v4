@@ -651,7 +651,7 @@ export default function EIPsHomePage() {
   };
 
   return (
-    <div className="w-full px-3 py-6 sm:px-6 lg:px-8 xl:px-12">
+    <div className="w-full px-3 py-6 sm:px-4 lg:px-5 xl:px-6">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
         <EIPsPageHeader />
       </motion.div>

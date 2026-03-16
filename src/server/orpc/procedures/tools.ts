@@ -398,7 +398,6 @@ const { repo, govState, processType, search, page, pageSize } = input;
               CASE COALESCE(gs.current_state, 'NO_STATE')
                 WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
                 WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-                WHEN 'STALLED' THEN 'Stagnant'
                 WHEN 'DRAFT' THEN 'AWAITED'
                 ELSE 'Uncategorized'
               END
@@ -473,7 +472,6 @@ const { repo, govState, search } = input;
               CASE COALESCE(gs.current_state, 'NO_STATE')
                 WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
                 WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-                WHEN 'STALLED' THEN 'Stagnant'
                 WHEN 'DRAFT' THEN 'AWAITED'
                 ELSE 'Uncategorized'
               END
@@ -508,7 +506,6 @@ const { repo, govState, search } = input;
             CASE COALESCE(gs.current_state, 'NO_STATE')
               WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
               WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-              WHEN 'STALLED' THEN 'Stagnant'
               WHEN 'DRAFT' THEN 'AWAITED'
               ELSE 'Uncategorized'
             END
@@ -518,7 +515,6 @@ const { repo, govState, search } = input;
             CASE COALESCE(gs.current_state, 'NO_STATE')
               WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
               WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-              WHEN 'STALLED' THEN 'Stagnant'
               WHEN 'DRAFT' THEN 'AWAITED'
               ELSE 'Uncategorized'
             END

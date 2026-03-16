@@ -2,8 +2,7 @@
 
 import React, { createContext, useContext, useState, useMemo, useCallback, Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Download, Calendar, Database } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Calendar, Database } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Export Helper Functions ─────────────────────────────────────
@@ -237,7 +236,7 @@ function AnalyticsLayoutInner({
       <div className="min-h-screen bg-background">
         {/* Single merged header — not sticky */}
         <div className="border-b border-border bg-card/80">
-          <div className="page-shell py-5">
+          <div className="mx-auto w-full px-3 py-5 sm:px-4 lg:px-5 xl:px-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               {/* Title + subtitle */}
               <div>
@@ -283,46 +282,12 @@ function AnalyticsLayoutInner({
                   </select>
                 </div>
 
-                {/* Snapshot Toggle */}
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/60 p-1.5">
-                  <button
-                    onClick={() =>
-                      setSnapshotMode(snapshotMode === "live" ? "snapshot" : "live")
-                    }
-                    className={cn(
-                      "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                      snapshotMode === "live"
-                        ? "bg-primary/15 text-primary"
-                        : "bg-transparent text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {snapshotMode === "live" ? "Live" : "Snapshot"}
-                  </button>
-                </div>
-
-                {/* Export */}
-                <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/60 p-1.5">
-                  <button
-                    onClick={() => exportData("csv")}
-                    className="px-3 py-1.5 text-xs font-medium text-foreground/80 hover:text-foreground transition-colors flex items-center gap-1.5"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    CSV
-                  </button>
-                  <div className="h-4 w-px bg-border" />
-                  <button
-                    onClick={() => exportData("json")}
-                    className="px-3 py-1.5 text-xs font-medium text-foreground/80 hover:text-foreground transition-colors"
-                  >
-                    JSON
-                  </button>
-                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="page-shell py-6">
+        <div className="mx-auto w-full px-3 py-6 sm:px-4 lg:px-5 xl:px-6">
           <main className="min-w-0">{children}</main>
         </div>
       </div>

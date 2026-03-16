@@ -76,7 +76,7 @@ export default function RootLayout({
               <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
                 <main className="min-h-full w-full">
                   {children}
-                  <section className="page-shell pb-6">
+                  <section className="mx-auto w-full px-3 pb-6 sm:px-4 lg:px-5 xl:px-6">
                     <GlobalPageFeedback />
                   </section>
                 </main>
