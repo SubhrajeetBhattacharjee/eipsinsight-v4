@@ -110,19 +110,22 @@ type TimeRange = "7d" | "30d" | "90d" | "1y" | "this_month" | "all" | "custom";
 type CrossTabMode = "process_x_state" | "state_x_process";
 
 const PROCESS_COLORS: Record<string, string> = {
-  DRAFT: "#A78BFA",
-  TYPO: "#94A3B8",
-  NEW_EIP: "#34D399",
-  STATUS_CHANGE: "#60A5FA",
-  OTHER: "#64748B",
+  "PR DRAFT": "#A78BFA",
+  Typo: "#94A3B8",
+  "New EIP": "#34D399",
+  "Status Change": "#60A5FA",
+  Website: "#8B5CF6",
+  Tooling: "#F97316",
+  "EIP-1": "#3B82F6",
+  "Content Edit": "#64748B",
 };
 
 const GOVERNANCE_COLORS: Record<string, string> = {
-  WAITING_ON_EDITOR: "#60A5FA",
-  WAITING_ON_AUTHOR: "#F59E0B",
-  STALLED: "#EF4444",
-  DRAFT: "#A78BFA",
-  NO_STATE: "#64748B",
+  "Waiting on Editor": "#60A5FA",
+  "Waiting on Author": "#F59E0B",
+  Stagnant: "#EF4444",
+  AWAITED: "#A78BFA",
+  Uncategorized: "#64748B",
 };
 
 function getMonthWindow(range: TimeRange): { from?: string; to?: string } {

@@ -1801,9 +1801,10 @@ export const analyticsProcedures = {
             END AS snapshot_ts
         ),
         open_prs AS (
-          SELECT pr.id AS pr_id, pr.pr_number, pr.repository_id, pr.title, pr.labels
+          SELECT pr.id AS pr_id, pr.pr_number, pr.repository_id, pr.title, pr.labels, gs.category
           FROM pull_requests pr
           JOIN repositories r ON pr.repository_id = r.id
+          LEFT JOIN pr_governance_state gs ON pr.pr_number = gs.pr_number AND pr.repository_id = gs.repository_id
           CROSS JOIN snapshot_ctx sc
           WHERE pr.created_at <= sc.snapshot_ts
             AND (pr.merged_at IS NULL OR pr.merged_at > sc.snapshot_ts)
@@ -1812,23 +1813,23 @@ export const analyticsProcedures = {
         ),
         classified AS (
           SELECT op.pr_id,
-            CASE
+            COALESCE(op.category, CASE
               WHEN LOWER(COALESCE(op.title, '')) LIKE '%typo%' OR LOWER(COALESCE(op.title, '')) LIKE '%fix typo%'
-                OR LOWER(COALESCE(op.title, '')) LIKE '%editorial%' OR LOWER(COALESCE(op.title, '')) LIKE '%grammar%' THEN 'TYPO'
-              WHEN COALESCE(op.labels, ARRAY[]::text[]) && ARRAY['c-status', 'c-update']::text[] THEN 'STATUS_CHANGE'
+                OR LOWER(COALESCE(op.title, '')) LIKE '%editorial%' OR LOWER(COALESCE(op.title, '')) LIKE '%grammar%' THEN 'Typo'
+              WHEN COALESCE(op.labels, ARRAY[]::text[]) && ARRAY['c-status', 'c-update']::text[] THEN 'Status Change'
               WHEN EXISTS (
                 SELECT 1 FROM pull_request_eips pre
                 JOIN eips e ON e.eip_number = pre.eip_number
                 JOIN eip_snapshots s ON s.eip_id = e.id
                 WHERE pre.pr_number = op.pr_number AND pre.repository_id = op.repository_id AND s.status = 'Draft'
-              ) THEN 'NEW_EIP'
+              ) THEN 'New EIP'
               WHEN LOWER(COALESCE(op.title, '')) LIKE '%status%' OR LOWER(COALESCE(op.title, '')) LIKE '%draft%'
                 OR LOWER(COALESCE(op.title, '')) LIKE '%review%' OR LOWER(COALESCE(op.title, '')) LIKE '%last call%'
                 OR LOWER(COALESCE(op.title, '')) LIKE '%final%' OR LOWER(COALESCE(op.title, '')) LIKE '%withdrawn%'
                 OR LOWER(COALESCE(op.title, '')) LIKE '%stagnant%' OR LOWER(COALESCE(op.title, '')) LIKE '%living%'
-                OR LOWER(COALESCE(op.title, '')) LIKE '%wip%' THEN 'DRAFT'
-              ELSE 'OTHER'
-            END AS category
+                OR LOWER(COALESCE(op.title, '')) LIKE '%wip%' THEN 'PR DRAFT'
+              ELSE 'Content Edit'
+            END) AS category
           FROM open_prs op
         )
         SELECT category, COUNT(*)::bigint AS count
@@ -1837,7 +1838,7 @@ export const analyticsProcedures = {
         ORDER BY count DESC
       `, input.repo || null, input.month ?? null);
 
-      const order = ['DRAFT', 'TYPO', 'NEW_EIP', 'STATUS_CHANGE', 'OTHER'];
+      const order = ['PR DRAFT', 'Typo', 'New EIP', 'Status Change', 'Website', 'Tooling', 'EIP-1', 'Content Edit'];
       const byCat = Object.fromEntries(results.map(r => [r.category, Number(r.count)]));
       return order.map(category => ({ category, count: byCat[category] ?? 0 }));
     }),
@@ -1874,7 +1875,15 @@ export const analyticsProcedures = {
         ),
         open_with_state AS (
           SELECT pr.pr_number, pr.repository_id, r.name AS repo_name,
-                 COALESCE(gs.current_state, 'NO_STATE') AS state,
+                 COALESCE(gs.subcategory,
+                   CASE COALESCE(gs.current_state, 'NO_STATE')
+                     WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
+                     WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
+                     WHEN 'STALLED' THEN 'Stagnant'
+                     WHEN 'DRAFT' THEN 'AWAITED'
+                     ELSE 'Uncategorized'
+                   END
+                 ) AS state,
                  gs.waiting_since,
                  sc.snapshot_ts
           FROM pull_requests pr
@@ -1907,8 +1916,7 @@ export const analyticsProcedures = {
           ORDER BY wd.state, wd.wait_days DESC
         )
         SELECT bs.state,
-               CASE bs.state WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor' WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-                 WHEN 'STALLED' THEN 'Stalled' WHEN 'DRAFT' THEN 'Draft' ELSE 'No State' END AS label,
+               bs.state AS label,
                bs.count,
                bs.median_wait_days::numeric,
                op.oldest_pr_number,
@@ -1964,9 +1972,17 @@ export const analyticsProcedures = {
         )
         SELECT pr.pr_number, r.name AS repo, pr.title, pr.author,
                TO_CHAR(pr.created_at, 'YYYY-MM-DD') AS created_at,
-               COALESCE(gs.current_state, 'NO_STATE') AS state,
+               COALESCE(gs.subcategory,
+                 CASE COALESCE(gs.current_state, 'NO_STATE')
+                   WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
+                   WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
+                   WHEN 'STALLED' THEN 'Stagnant'
+                   WHEN 'DRAFT' THEN 'AWAITED'
+                   ELSE 'Uncategorized'
+                 END
+               ) AS state,
                TO_CHAR(gs.waiting_since, 'YYYY-MM-DD') AS waiting_since,
-               gs.last_event_type,
+               COALESCE(gs.reason, gs.last_event_type) AS last_event_type,
                (SELECT STRING_AGG(pre.eip_number::text, ',') FROM pull_request_eips pre WHERE pre.pr_number = pr.pr_number AND pre.repository_id = pr.repository_id) AS linked_eips
         FROM pull_requests pr
         JOIN repositories r ON pr.repository_id = r.id

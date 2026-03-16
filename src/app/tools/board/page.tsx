@@ -50,15 +50,15 @@ type StatsData = {
 
 const GOV_STATES = [
   {
-    state: "WAITING_ON_EDITOR",
-    label: "Awaiting Editor",
+    state: "Waiting on Editor",
+    label: "Waiting on Editor",
     icon: "⏳",
     bg: "bg-blue-500/10",
     text: "text-blue-700 dark:text-blue-300",
     border: "border-blue-500/30",
   },
   {
-    state: "WAITING_ON_AUTHOR",
+    state: "Waiting on Author",
     label: "Waiting on Author",
     icon: "✍️",
     bg: "bg-amber-500/10",
@@ -66,23 +66,23 @@ const GOV_STATES = [
     border: "border-amber-500/30",
   },
   {
-    state: "STALLED",
-    label: "Stalled",
+    state: "Stagnant",
+    label: "Stagnant",
     icon: "🔴",
     bg: "bg-red-500/10",
     text: "text-red-700 dark:text-red-300",
     border: "border-red-500/30",
   },
   {
-    state: "DRAFT",
-    label: "Draft PR",
+    state: "AWAITED",
+    label: "Awaited",
     icon: "📝",
     bg: "bg-slate-500/10",
     text: "text-slate-700 dark:text-slate-300",
     border: "border-slate-500/30",
   },
   {
-    state: "NO_STATE",
+    state: "Uncategorized",
     label: "Uncategorized",
     icon: "❓",
     bg: "bg-muted",
@@ -93,15 +93,16 @@ const GOV_STATES = [
 
 const PT_COLORS: Record<string, string> = {
   Typo: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20",
-  "NEW EIP": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
+  "New EIP": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
   Website: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/20",
   "EIP-1": "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/20",
   Tooling: "bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/20",
   "Status Change": "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/20",
-  Other: "bg-muted text-muted-foreground border-border",
+  "PR DRAFT": "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/20",
+  "Content Edit": "bg-muted text-muted-foreground border-border",
 };
 
-const PROCESS_ORDER = ["Status Change", "NEW EIP", "DRAFT", "Typo", "Website", "EIP-1", "Tooling", "Other"];
+const PROCESS_ORDER = ["Status Change", "New EIP", "PR DRAFT", "Typo", "Website", "EIP-1", "Tooling", "Content Edit"];
 
 function getLabelColor(label: string): string {
   if (label.startsWith("c-")) return "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300";
@@ -139,7 +140,7 @@ export default function BoardPage() {
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [repo, setRepo] = useState<"" | "eips" | "ercs" | "rips">("");
-  const [selectedGovStates, setSelectedGovStates] = useState<string[]>(["WAITING_ON_EDITOR"]);
+  const [selectedGovStates, setSelectedGovStates] = useState<string[]>(["Waiting on Editor"]);
   const [selectedProcessTypes, setSelectedProcessTypes] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -210,7 +211,7 @@ export default function BoardPage() {
 
   const resetFilters = () => {
     setRepo("");
-    setSelectedGovStates(["WAITING_ON_EDITOR"]);
+    setSelectedGovStates(["Waiting on Editor"]);
     setSelectedProcessTypes([]);
     setSearch("");
     setPage(1);

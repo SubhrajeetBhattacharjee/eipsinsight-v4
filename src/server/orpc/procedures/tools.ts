@@ -14,12 +14,12 @@ async function getRepoIds(repo?: string): Promise<number[] | null> {
 /* SQL fragment: classify open PRs by process type */
 const PROCESS_TYPE_SQL = `CASE
   WHEN LOWER(COALESCE(p.title, '')) ~ 'typo|spelling|grammar|editorial' THEN 'Typo'
-  WHEN p.labels @> ARRAY['c-new']::text[] THEN 'NEW EIP'
+  WHEN p.labels @> ARRAY['c-new']::text[] THEN 'New EIP'
   WHEN LOWER(COALESCE(p.title, '')) ~ 'website|jekyll|_config' THEN 'Website'
   WHEN LOWER(COALESCE(p.title, '')) ~ 'update eip-1[: ]' OR LOWER(COALESCE(p.title, '')) = 'update eip-1' THEN 'EIP-1'
   WHEN p.labels && ARRAY['dependencies']::text[] OR LOWER(COALESCE(p.title, '')) ~ '^bump ' THEN 'Tooling'
   WHEN p.labels && ARRAY['c-status', 'c-update']::text[] THEN 'Status Change'
-  ELSE 'Other'
+  ELSE 'Content Edit'
 END`;
 
 export const toolsProcedures = {
@@ -393,9 +393,18 @@ const { repo, govState, processType, search, page, pageSize } = input;
             p.labels,
             r.name AS repo_name,
             LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short,
-            COALESCE(gs.current_state, 'NO_STATE') AS gov_state,
+            COALESCE(
+              gs.subcategory,
+              CASE COALESCE(gs.current_state, 'NO_STATE')
+                WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
+                WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
+                WHEN 'STALLED' THEN 'Stagnant'
+                WHEN 'DRAFT' THEN 'AWAITED'
+                ELSE 'Uncategorized'
+              END
+            ) AS gov_state,
             GREATEST(EXTRACT(DAY FROM (NOW() - COALESCE(gs.waiting_since, p.created_at, NOW())))::int, 0) AS wait_days,
-            ${PROCESS_TYPE_SQL} AS process_type
+            COALESCE(gs.category, ${PROCESS_TYPE_SQL}) AS process_type
           FROM pull_requests p
           JOIN repositories r ON p.repository_id = r.id
           LEFT JOIN pr_governance_state gs
@@ -459,8 +468,17 @@ const { repo, govState, search } = input;
         WITH base AS (
           SELECT
             p.pr_number, p.title, p.author,
-            COALESCE(gs.current_state, 'NO_STATE') AS gov_state,
-            ${PROCESS_TYPE_SQL} AS process_type
+            COALESCE(
+              gs.subcategory,
+              CASE COALESCE(gs.current_state, 'NO_STATE')
+                WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
+                WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
+                WHEN 'STALLED' THEN 'Stagnant'
+                WHEN 'DRAFT' THEN 'AWAITED'
+                ELSE 'Uncategorized'
+              END
+            ) AS gov_state,
+            COALESCE(gs.category, ${PROCESS_TYPE_SQL}) AS process_type
           FROM pull_requests p
           JOIN repositories r ON p.repository_id = r.id
           LEFT JOIN pr_governance_state gs
@@ -485,14 +503,26 @@ const { repo, govState, search } = input;
         state: string; label: string; count: bigint;
       }>>(`
         SELECT
-          COALESCE(gs.current_state, 'NO_STATE') AS state,
-          CASE COALESCE(gs.current_state, 'NO_STATE')
-            WHEN 'WAITING_ON_EDITOR' THEN 'Awaiting Editor'
-            WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-            WHEN 'STALLED' THEN 'Stalled'
-            WHEN 'DRAFT' THEN 'Draft PR'
-            ELSE 'Uncategorized'
-          END AS label,
+          COALESCE(
+            gs.subcategory,
+            CASE COALESCE(gs.current_state, 'NO_STATE')
+              WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
+              WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
+              WHEN 'STALLED' THEN 'Stagnant'
+              WHEN 'DRAFT' THEN 'AWAITED'
+              ELSE 'Uncategorized'
+            END
+          ) AS state,
+          COALESCE(
+            gs.subcategory,
+            CASE COALESCE(gs.current_state, 'NO_STATE')
+              WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
+              WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
+              WHEN 'STALLED' THEN 'Stagnant'
+              WHEN 'DRAFT' THEN 'AWAITED'
+              ELSE 'Uncategorized'
+            END
+          ) AS label,
           COUNT(*)::bigint AS count
         FROM pull_requests p
         JOIN repositories r ON p.repository_id = r.id
@@ -505,7 +535,7 @@ const { repo, govState, search } = input;
             OR LOWER(COALESCE(p.title, '')) LIKE '%' || LOWER($2) || '%'
             OR LOWER(COALESCE(p.author, '')) LIKE '%' || LOWER($2) || '%'
           ))
-        GROUP BY gs.current_state
+        GROUP BY state, label
         ORDER BY count DESC
       `, repo || null, search || null);
 
