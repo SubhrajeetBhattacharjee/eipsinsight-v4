@@ -1,6 +1,7 @@
 import { optionalAuthProcedure, publicProcedure, checkAPIToken, ORPCError } from './types'
 import { prisma } from '@/lib/prisma'
 import { getUpgradeTimelineData } from '@/data/upgrade-timelines'
+import { rawData, pairedUpgradeNames } from '@/data/network-upgrades'
 import * as z from 'zod'
 
 // ─── Helper: Fetch and parse EIP/ERC/RIP markdown from GitHub ────────────────
@@ -42,6 +43,79 @@ function getConstantUpgradeOverrides(eipNumber: number): Map<string, { bucket: s
   }
 
   return overrides;
+}
+
+function getHistoricalUpgradeSlug(name: string, date: string): string {
+  const pairedName = pairedUpgradeNames[date];
+  if (pairedName === 'Shapella') return 'shanghai';
+  if (pairedName === 'Dencun') return 'cancun';
+  if (pairedName === 'Pectra') return 'pectra';
+  if (pairedName === 'Fusaka') return 'fusaka';
+
+  const directMap: Record<string, string> = {
+    'frontier thawing': 'frontier-thawing',
+    frontier: 'frontier',
+    homestead: 'homestead',
+    'dao fork': 'dao-fork',
+    'tangerine whistle': 'tangerine-whistle',
+    'spurious dragon': 'spurious-dragon',
+    byzantium: 'byzantium',
+    constantinople: 'constantinople',
+    petersburg: 'petersburg',
+    istanbul: 'istanbul',
+    'muir glacier': 'muir-glacier',
+    berlin: 'berlin',
+    london: 'london',
+    altair: 'altair',
+    'arrow glacier': 'arrow-glacier',
+    'gray glacier': 'gray-glacier',
+    bellatrix: 'bellatrix',
+    paris: 'paris',
+    shanghai: 'shanghai',
+    capella: 'capella',
+    cancun: 'cancun',
+    deneb: 'deneb',
+    prague: 'pectra',
+    electra: 'pectra',
+    osaka: 'fusaka',
+    fulu: 'fusaka',
+  };
+
+  return directMap[name.toLowerCase()] ?? name.toLowerCase().replace(/\s+/g, '-');
+}
+
+function getHistoricalIncludedUpgrades(eipNumber: number): Array<{
+  name: string;
+  slug: string;
+  bucket: string;
+  commit_date: string;
+}> {
+  const normalized = String(eipNumber);
+  const mergeTimestamp = new Date('2022-09-15').getTime();
+  const entries = new Map<string, { name: string; slug: string; bucket: string; commit_date: string }>();
+
+  rawData.forEach((item) => {
+    const includesEip = item.eips.some((value) => value.replace('EIP-', '').replace('-removed', '') === normalized);
+    if (!includesEip) return;
+
+    const itemTime = new Date(item.date).getTime();
+    const displayName =
+      itemTime > mergeTimestamp && pairedUpgradeNames[item.date]
+        ? pairedUpgradeNames[item.date]
+        : item.upgrade;
+    const slug = getHistoricalUpgradeSlug(displayName, item.date);
+    const key = `${item.date}:${slug}`;
+    if (!entries.has(key)) {
+      entries.set(key, {
+        name: displayName,
+        slug,
+        bucket: 'included',
+        commit_date: new Date(item.date).toISOString(),
+      });
+    }
+  });
+
+  return Array.from(entries.values());
 }
 
 /**
@@ -263,6 +337,7 @@ const eip = await prisma.eips.findUnique({
       number: z.number(),
     }))
     .handler(async ({ input }) => {
+      const historicalIncluded = getHistoricalIncludedUpgrades(input.number);
       const constantUpgradeOverrides = getConstantUpgradeOverrides(input.number);
 
       const currentComposition = await prisma.upgrade_composition_current.findMany({
@@ -359,8 +434,8 @@ const eip = await prisma.eips.findUnique({
         },
       });
 
-      // Combine data
-      return Array.from(upgradeMap.entries())
+      // Combine DB + constants first
+      const combined = Array.from(upgradeMap.entries())
         .map(([upgradeId, eventData]) => {
         const upgrade = upgradesData.find(u => u.id === upgradeId);
         
@@ -371,12 +446,34 @@ const eip = await prisma.eips.findUnique({
           bucket: eventData.bucket,
           commit_date: eventData.commit_date?.toISOString() || null,
         };
-      })
-        .sort((a, b) => {
-          const aTime = a.commit_date ? new Date(a.commit_date).getTime() : 0;
-          const bTime = b.commit_date ? new Date(b.commit_date).getTime() : 0;
-          return bTime - aTime;
+      });
+
+      // Merge historical dataset fallback for legacy upgrades
+      const bySlug = new Map<string, {
+        upgrade_id: number;
+        name: string;
+        slug: string;
+        bucket: string;
+        commit_date: string | null;
+      }>();
+      combined.forEach((item) => bySlug.set(item.slug || item.name.toLowerCase(), item));
+      historicalIncluded.forEach((item, index) => {
+        const key = item.slug || item.name.toLowerCase();
+        if (bySlug.has(key)) return;
+        bySlug.set(key, {
+          upgrade_id: -(index + 1),
+          name: item.name,
+          slug: item.slug,
+          bucket: item.bucket,
+          commit_date: item.commit_date,
         });
+      });
+
+      return Array.from(bySlug.values()).sort((a, b) => {
+        const aTime = a.commit_date ? new Date(a.commit_date).getTime() : 0;
+        const bTime = b.commit_date ? new Date(b.commit_date).getTime() : 0;
+        return bTime - aTime;
+      });
     }),
 
   // E. Markdown Content (fetched from GitHub raw)
