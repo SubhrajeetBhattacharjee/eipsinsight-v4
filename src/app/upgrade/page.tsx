@@ -65,7 +65,6 @@ export default function UpgradePage() {
     () => new Set(rawData.map((item) => getDisplayUpgradeName(item.upgrade, item.date))).size,
     []
   );
-
   const coreEipRows = useMemo(() => {
     return rawData
       .flatMap((item) =>
@@ -401,10 +400,6 @@ export default function UpgradePage() {
           </div>
         </div>
       </section>
-
-      <div className="w-full px-3 sm:px-4 lg:px-5 xl:px-6">
-        <div className="h-px w-full bg-border/60" />
-      </div>
 
       {/* Timeline Section */}
       <section className="relative w-full bg-background">
