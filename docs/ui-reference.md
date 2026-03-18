@@ -154,7 +154,8 @@ Primary utility classes for persona-aware styling:
 | Button lg | `h-10` (40px) | Large buttons |
 | Icon default | `h-4 w-4`, `h-5 w-5` | 16px, 20px icons |
 | Container | `max-w-7xl`, `px-4 sm:px-6` | Main content |
-| Shared shell | `.page-shell` | Use for page bodies, analytics sections, and page feedback wrapper |
+| Shared shell | `.page-shell` | Use for centered page bodies that should stay within `max-w-7xl` |
+| Full-width page padding | `mx-auto w-full px-3 sm:px-4 lg:px-5 xl:px-6` | Use for full-width page sections such as `/upgrade`, `/search`, and the global page feedback wrapper |
 
 ### Border Radius
 
@@ -209,9 +210,11 @@ Primary utility classes for persona-aware styling:
 
 ### Page Shell
 
-- Default page body shell: `page-shell` (`mx-auto w-full max-w-7xl px-4 sm:px-6`)
-- Use the same shell for analytics pages, tool pages, and shared footer-level sections like page feedback
-- Do not introduce separate outer `max-w-*` wrappers for feedback cards inside a `page-shell`
+- Use `page-shell` for centered page bodies: `mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 xl:px-12`
+- Use the full-width page wrapper for sections that should align with the viewport content area instead of a centered max-width container:
+  `mx-auto w-full px-3 sm:px-4 lg:px-5 xl:px-6`
+- Use that full-width wrapper for `/upgrade`, `/search`, and the global page feedback section
+- Do not add another outer `max-w-*` wrapper around page feedback when it is already inside the full-width wrapper
 
 ### Collapsible Page Header
 

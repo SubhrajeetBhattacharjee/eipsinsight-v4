@@ -21,6 +21,12 @@ interface MarkdownRendererProps {
   };
   skipPreamble?: boolean;
   stripDuplicateHeaders?: boolean;
+  collapsibleSections?: boolean;
+}
+
+interface MarkdownSection {
+  title: string;
+  body: string;
 }
 
 function parseMarkdown(markdown: string): { body: string; frontmatter: Record<string, string> } {
@@ -63,6 +69,42 @@ function stripTitleHeaders(markdown: string, title?: string): string {
   const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const titleRegex = new RegExp(`^#{1,2}\\s+${escapedTitle}\\s*$`, 'gim');
   return markdown.replace(titleRegex, '');
+}
+
+function splitByH2Sections(markdown: string): MarkdownSection[] {
+  const lines = markdown.split('\n');
+  const sections: MarkdownSection[] = [];
+  let currentTitle = 'Overview';
+  let currentLines: string[] = [];
+  let hasH2 = false;
+
+  const pushCurrent = () => {
+    const body = currentLines.join('\n').trim();
+    if (!body) return;
+    sections.push({ title: currentTitle, body });
+  };
+
+  for (const line of lines) {
+    const match = line.match(/^##\s+(.+)\s*$/);
+    if (match) {
+      hasH2 = true;
+      pushCurrent();
+      currentTitle = match[1].trim();
+      currentLines = [];
+      continue;
+    }
+    currentLines.push(line);
+  }
+
+  pushCurrent();
+
+  if (!hasH2 || sections.length === 0) {
+    const fallback = markdown.trim();
+    if (!fallback) return [];
+    return [{ title: 'Specification', body: fallback }];
+  }
+
+  return sections;
 }
 
 function extractText(children: ReactNode): string {
@@ -222,6 +264,7 @@ export function MarkdownRenderer({
   preamble,
   skipPreamble = false,
   stripDuplicateHeaders = false,
+  collapsibleSections = false,
 }: MarkdownRendererProps) {
   const { body, frontmatter } = parseMarkdown(content);
   const titleToStrip = preamble?.title || frontmatter.title;
@@ -305,15 +348,43 @@ export function MarkdownRenderer({
         </div>
       )}
 
-      <article className="markdown-content mx-auto max-w-4xl" style={{ lineHeight: "1.75" }}>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
-          components={markdownComponents}
-        >
-          {processedContent}
-        </ReactMarkdown>
-      </article>
+      {collapsibleSections ? (
+        <div className="space-y-3">
+          {splitByH2Sections(processedContent).map((section, index) => (
+            <details
+              key={`${section.title}-${index}`}
+              open={index === 0}
+              className="overflow-hidden rounded-xl border border-border bg-card/45"
+            >
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
+                <span className="inline-flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{index + 1}.</span>
+                  {section.title}
+                </span>
+              </summary>
+              <article className="markdown-content max-w-none border-t border-border/70 px-4 py-4" style={{ lineHeight: "1.75" }}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                  components={markdownComponents}
+                >
+                  {section.body}
+                </ReactMarkdown>
+              </article>
+            </details>
+          ))}
+        </div>
+      ) : (
+        <article className="markdown-content max-w-none" style={{ lineHeight: "1.75" }}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
+            components={markdownComponents}
+          >
+            {processedContent}
+          </ReactMarkdown>
+        </article>
+      )}
 
       <style jsx>{`
         .markdown-content :global(h2[id]),

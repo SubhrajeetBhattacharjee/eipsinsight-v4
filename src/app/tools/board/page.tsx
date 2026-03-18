@@ -66,14 +66,6 @@ const GOV_STATES = [
     border: "border-amber-500/30",
   },
   {
-    state: "Stagnant",
-    label: "Stagnant",
-    icon: "🔴",
-    bg: "bg-red-500/10",
-    text: "text-red-700 dark:text-red-300",
-    border: "border-red-500/30",
-  },
-  {
     state: "AWAITED",
     label: "Awaited",
     icon: "📝",
@@ -100,9 +92,10 @@ const PT_COLORS: Record<string, string> = {
   "Status Change": "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/20",
   "PR DRAFT": "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/20",
   "Content Edit": "bg-muted text-muted-foreground border-border",
+  Misc: "bg-zinc-500/15 text-zinc-700 dark:text-zinc-300 border-zinc-500/20",
 };
 
-const PROCESS_ORDER = ["Status Change", "New EIP", "PR DRAFT", "Typo", "Website", "EIP-1", "Tooling", "Content Edit"];
+const PROCESS_ORDER = ["Status Change", "New EIP", "PR DRAFT", "Typo", "Website", "EIP-1", "Tooling", "Content Edit", "Misc"];
 
 function getLabelColor(label: string): string {
   if (label.startsWith("c-")) return "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300";
@@ -512,7 +505,7 @@ export default function BoardPage() {
                 ) : (
                   rows.map((row) => {
                     const p = priorityOf(row.waitDays);
-                    const gsConf = GOV_STATES.find((g) => g.state === row.govState) ?? GOV_STATES[4];
+                    const gsConf = GOV_STATES.find((g) => g.state === row.govState) ?? GOV_STATES[GOV_STATES.length - 1];
                     const labels = row.labels ?? [];
                     const showLabels = labels.slice(0, 2);
                     const extra = labels.length - showLabels.length;

@@ -34,6 +34,15 @@ const CHANGE_LABELS: Record<string, string> = {
   "metadata-change": "Metadata",
 };
 const STATUS_ORDER = ["Draft", "Review", "Last Call", "Living", "Final", "Stagnant", "Withdrawn"] as const;
+const STATUS_LOOKUP = new Map(STATUS_ORDER.map((status) => [status.toLowerCase(), status]));
+
+function normalizeStatusLabel(raw: string | null | undefined): string {
+  const value = (raw || "").trim();
+  if (!value) return "Unknown";
+  const canonical = STATUS_LOOKUP.get(value.toLowerCase());
+  if (canonical) return canonical;
+  return value;
+}
 const CATEGORY_LINE_COLORS = [
   "#10b981",
   "#60a5fa",
@@ -81,6 +90,7 @@ function DrilldownPageContent() {
   const [dataUpdatedAt, setDataUpdatedAt] = useState<Date>(new Date());
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [data, setData] = useState<Awaited<ReturnType<typeof client.insights.getMonthlyDrilldown>> | null>(null);
+  const [summaryRows, setSummaryRows] = useState<Array<Awaited<ReturnType<typeof client.insights.getMonthlyDrilldown>>["rows"][number]>>([]);
   const [editors, setEditors] = useState<Array<{ editor: string; totalActions: number; prsTouched: number }>>([]);
   const [statusTransitionData, setStatusTransitionData] = useState<Array<Record<string, string | number>>>([]);
   const [draftFinalHistory, setDraftFinalHistory] = useState<Array<{ month: string; draft: number; final: number }>>([]);
@@ -101,7 +111,7 @@ function DrilldownPageContent() {
     const run = async () => {
       setLoading(true);
       try {
-        const [drilldown, editorRows, statusData, draftFinalHistoryRes, statusCategoryTrendRes] = await Promise.all([
+        const [drilldown, summaryDrilldown, editorRows, statusData, draftFinalHistoryRes, statusCategoryTrendRes] = await Promise.all([
           client.insights.getMonthlyDrilldown({
             repo: tableRepoFilter ?? repo,
             month,
@@ -112,6 +122,17 @@ function DrilldownPageContent() {
             sort: "impact_desc",
             page,
             pageSize,
+          }),
+          client.insights.getMonthlyDrilldown({
+            repo: tableRepoFilter ?? repo,
+            month,
+            status: tableStatusFilter ? [tableStatusFilter] : [],
+            change: [],
+            type: [],
+            q: "",
+            sort: "impact_desc",
+            page: 1,
+            pageSize: 2000,
           }),
           client.analytics.getMonthlyEditorLeaderboard({
             monthYear: month,
@@ -136,6 +157,7 @@ function DrilldownPageContent() {
         ]);
 
         setData(drilldown);
+        setSummaryRows(summaryDrilldown.rows);
         setEditors(editorRows.items.map((row) => ({
           editor: row.actor,
           totalActions: row.totalActions,
@@ -210,14 +232,23 @@ function DrilldownPageContent() {
     const matrix: Record<string, { eips: number; ercs: number; rips: number }> = {};
     STATUS_ORDER.forEach((s) => { matrix[s] = initRow(); });
 
-    for (const row of rows) {
-      const status = row.currentStatus || "Unknown";
+    for (const row of summaryRows) {
+      if (!row.changedTypes.includes("status-change") || !row.statusTransition?.to) continue;
+      const status = normalizeStatusLabel(row.statusTransition.to);
       if (!matrix[status]) matrix[status] = initRow();
       if (row.repo === "eips" || row.repo === "ercs" || row.repo === "rips") matrix[status][row.repo] += 1;
     }
 
     return matrix;
-  }, [rows]);
+  }, [summaryRows]);
+
+  const visibleStatusOrder = useMemo(() => {
+    const seen = new Set<string>(STATUS_ORDER);
+    const dynamic = Object.keys(statusRepoMatrix)
+      .filter((status) => !seen.has(status))
+      .sort((a, b) => a.localeCompare(b));
+    return [...STATUS_ORDER, ...dynamic];
+  }, [statusRepoMatrix]);
 
   const changeBreakdownOption = useMemo(() => {
     const total = (summary?.statusChanges || 0) + (summary?.contentChanges || 0) + (summary?.metadataChanges || 0);
@@ -503,7 +534,7 @@ function DrilldownPageContent() {
     lines.push(["change_breakdown", "Metadata Changes", summary?.metadataChanges || 0].map(csvEscape).join(","));
     lines.push("");
     lines.push("status,eip,erc,rip,total");
-    STATUS_ORDER.forEach((status) => {
+    visibleStatusOrder.forEach((status) => {
       const e = statusRepoMatrix[status]?.eips || 0;
       const c = statusRepoMatrix[status]?.ercs || 0;
       const r = statusRepoMatrix[status]?.rips || 0;
@@ -615,13 +646,16 @@ function DrilldownPageContent() {
                 <div className="xl:col-span-5 rounded-xl border border-border bg-card p-4">
                   <div className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold text-foreground">Summary</h3>
+                      <h3 className="text-sm font-semibold text-foreground">Status Transition Summary</h3>
                       <button
                         onClick={exportCsv}
                         className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/35 bg-primary/15 px-2.5 text-xs font-medium text-primary hover:bg-primary/20"
                       >
                         <Download className="h-3.5 w-3.5" /> Download Report
                       </button>
+                    </div>
+                    <div className="mb-2 text-xs text-muted-foreground">
+                      Monthly status-transition entries: <span className="font-semibold text-foreground">{summary?.statusChanges || 0}</span>
                     </div>
                     <div className="overflow-x-auto rounded-lg border border-border/80 bg-background/30">
                       <table className="w-full">
@@ -634,7 +668,7 @@ function DrilldownPageContent() {
                         </tr>
                       </thead>
                       <tbody>
-                        {STATUS_ORDER.map((status) => (
+                        {visibleStatusOrder.map((status) => (
                           <tr key={status} className="border-b border-border/50 last:border-b-0">
                             <td className="px-3 py-2.5 text-sm text-foreground">{status}</td>
                             <td className="px-3 py-2.5 text-center text-sm tabular-nums text-muted-foreground">

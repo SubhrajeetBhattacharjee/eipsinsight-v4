@@ -613,34 +613,48 @@ const getEditorsLeaderboardCached = unstable_cache(
       latest_occurred_at: Date | null;
     }>>(
       `
-      WITH editor_list AS (
-        SELECT DISTINCT LOWER(x) AS actor
-        FROM UNNEST($5::text[]) AS x
+      WITH editor_map AS (
+        SELECT canonical, actor_lc
+        FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+      ),
+      raw_events AS (
+        SELECT
+          em.canonical AS actor,
+          pe.pr_number,
+          pe.repository_id,
+          pe.event_type,
+          CASE
+            WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+              THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+            ELSE pe.created_at
+          END AS occurred_at
+        FROM pr_events pe
+        JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+        LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+        LEFT JOIN repositories r ON r.id = pe.repository_id
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND pe.pr_number > 0
       ),
       editor_activity AS (
-        SELECT ca.actor, ca.pr_number, ca.repository_id, ca.occurred_at, ca.action_type
-        FROM contributor_activity ca
-        LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE LOWER(ca.actor) IN (SELECT actor FROM editor_list)
-          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-          AND ($2::text IS NULL OR ca.occurred_at >= $2::timestamp)
-          AND ($3::text IS NULL OR ca.occurred_at <= $3::timestamp)
-          AND ca.pr_number > 0
+        SELECT actor, pr_number, repository_id, event_type, occurred_at
+        FROM raw_events
+        WHERE ($2::text IS NULL OR occurred_at >= $2::timestamp)
+          AND ($3::text IS NULL OR occurred_at <= $3::timestamp)
       ),
       by_actor AS (
         SELECT
           actor,
           COUNT(*)::bigint AS total_actions,
           COUNT(DISTINCT pr_number)::bigint AS prs_touched,
-          COUNT(*) FILTER (WHERE action_type = 'reviewed')::bigint AS reviews,
-          COUNT(*) FILTER (WHERE action_type IN ('commented', 'issue_comment'))::bigint AS comments,
+          COUNT(*) FILTER (WHERE event_type IN ('reviewed', 'approved', 'changes_requested'))::bigint AS reviews,
+          COUNT(*) FILTER (WHERE event_type IN ('commented', 'issue_comment', 'review_comment'))::bigint AS comments,
           MAX(occurred_at) AS latest_occurred_at
         FROM editor_activity GROUP BY actor
       ),
       first_review AS (
         SELECT ea.actor, ea.pr_number, ea.repository_id, MIN(ea.occurred_at) AS first_at
         FROM editor_activity ea
-        WHERE ea.action_type IN ('reviewed', 'commented', 'issue_comment')
+        WHERE ea.event_type IN ('reviewed', 'approved', 'changes_requested', 'commented', 'issue_comment', 'review_comment')
         GROUP BY ea.actor, ea.pr_number, ea.repository_id
       ),
       response_days AS (
@@ -652,15 +666,26 @@ const getEditorsLeaderboardCached = unstable_cache(
         SELECT actor, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY days)::numeric AS median_response_days
         FROM response_days GROUP BY actor
       )
-      SELECT ba.actor, ba.total_actions, ba.prs_touched, ba.reviews, ba.comments, ba.latest_occurred_at, m.median_response_days
-      FROM by_actor ba LEFT JOIN medians m ON m.actor = ba.actor
-      ORDER BY ba.total_actions DESC, ba.prs_touched DESC, ba.actor ASC LIMIT $4
+      SELECT
+        em.canonical AS actor,
+        COALESCE(ba.total_actions, 0::bigint) AS total_actions,
+        COALESCE(ba.prs_touched, 0::bigint) AS prs_touched,
+        COALESCE(ba.reviews, 0::bigint) AS reviews,
+        COALESCE(ba.comments, 0::bigint) AS comments,
+        ba.latest_occurred_at,
+        m.median_response_days
+      FROM editor_map em
+      LEFT JOIN by_actor ba ON ba.actor = em.canonical
+      LEFT JOIN medians m ON m.actor = em.canonical
+      ORDER BY COALESCE(ba.total_actions, 0::bigint) DESC, COALESCE(ba.prs_touched, 0::bigint) DESC, em.canonical ASC
+      LIMIT $4
     `,
       repo,
       from,
       to,
       limit,
-      Array.from(new Set(Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()))
+      Array.from(CANONICAL_EIP_EDITORS),
+      CANONICAL_EIP_EDITOR_LOWER
     );
     return results.map((r) => ({
       actor: r.actor,
@@ -683,19 +708,25 @@ const getReviewersLeaderboardCached = unstable_cache(
       total_reviews: bigint;
       prs_touched: bigint;
       median_response_days: number | null;
+      latest_occurred_at: Date | null;
     }>>(
       `
-      WITH reviewer_activity AS (
-        SELECT ca.actor, ca.pr_number, ca.repository_id, ca.occurred_at
+      WITH reviewer_map AS (
+        SELECT canonical, actor_lc
+        FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+      ),
+      reviewer_activity AS (
+        SELECT rm.canonical AS actor, ca.pr_number, ca.repository_id, ca.occurred_at
         FROM contributor_activity ca
+        JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
         LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE (UPPER(ca.role) = 'REVIEWER' OR (ca.action_type = 'reviewed' AND (ca.role IS NULL OR UPPER(ca.role) != 'EDITOR')))
-          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
           AND ($2::text IS NULL OR ca.occurred_at >= $2::timestamp)
           AND ($3::text IS NULL OR ca.occurred_at <= $3::timestamp)
+          AND ca.pr_number > 0
       ),
       by_actor AS (
-        SELECT actor, COUNT(*)::bigint AS total_reviews, COUNT(DISTINCT pr_number)::bigint AS prs_touched
+        SELECT actor, COUNT(*)::bigint AS total_reviews, COUNT(DISTINCT pr_number)::bigint AS prs_touched, MAX(occurred_at) AS latest_occurred_at
         FROM reviewer_activity GROUP BY actor
       ),
       first_review AS (
@@ -711,37 +742,75 @@ const getReviewersLeaderboardCached = unstable_cache(
         SELECT actor, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY days)::numeric AS median_response_days
         FROM response_days GROUP BY actor
       )
-      SELECT ba.actor, ba.total_reviews, ba.prs_touched, m.median_response_days
-      FROM by_actor ba LEFT JOIN medians m ON m.actor = ba.actor
-      ORDER BY ba.total_reviews DESC LIMIT $4
+      SELECT
+        rm.canonical AS actor,
+        COALESCE(ba.total_reviews, 0::bigint) AS total_reviews,
+        COALESCE(ba.prs_touched, 0::bigint) AS prs_touched,
+        ba.latest_occurred_at,
+        m.median_response_days
+      FROM reviewer_map rm
+      LEFT JOIN by_actor ba ON ba.actor = rm.canonical
+      LEFT JOIN medians m ON m.actor = rm.canonical
+      ORDER BY COALESCE(ba.total_reviews, 0::bigint) DESC, COALESCE(ba.prs_touched, 0::bigint) DESC, rm.canonical ASC
+      LIMIT $4
     `,
-      repo, from, to, limit
+      repo, from, to, limit, Array.from(CANONICAL_EIP_REVIEWERS), CANONICAL_EIP_REVIEWER_LOWER
     );
     return results.map((r) => ({
       actor: r.actor,
       totalReviews: Number(r.total_reviews),
       prsTouched: Number(r.prs_touched),
       medianResponseDays: r.median_response_days != null ? Math.round(Number(r.median_response_days)) : null,
+      updatedAt: r.latest_occurred_at?.toISOString() ?? null,
     }));
   },
   ['analytics-getReviewersLeaderboard'],
   { tags: ['analytics-reviewers-leaderboard'], revalidate: 600 }
 );
 
-// Official EIP editor assignments per category (governance-defined).
-// Used as the canonical source because pull_request_eips may be empty.
+// Canonical editor handles used across editor analytics.
+const CANONICAL_EIP_EDITORS = [
+  'axic',              // Alex Beregszaszi
+  'Pandapip1',         // Gavin John
+  'gcolvin',           // Greg Colvin
+  'lightclient',       // Matt Garnett
+  'SamWilsn',          // Sam Wilson
+  'xinbenlv',
+  'nconsigny',
+  'yoavw',
+  'CarlBeek',
+  'adietrichs',
+  'jochem-brouwer',
+  'abcoathup',
+] as const;
+
+const CANONICAL_EIP_EDITOR_LOWER = CANONICAL_EIP_EDITORS.map((editor) => editor.toLowerCase());
+
+// Canonical reviewer handles used across reviewer analytics.
+const CANONICAL_EIP_REVIEWERS = [
+  'bomanaps',
+  'Marchhill',
+  'SkandaBhat',
+  'advaita-saha',
+  'nalepae',
+  'daniellehrner',
+] as const;
+
+const CANONICAL_EIP_REVIEWER_LOWER = CANONICAL_EIP_REVIEWERS.map((reviewer) => reviewer.toLowerCase());
+
+// Official EIP editor assignments per category (governance-defined view on the page).
 const OFFICIAL_EDITORS_BY_CATEGORY: Record<string, string[]> = {
-  governance: ['lightclient', 'SamWilsn', 'xinbenlv', 'g11tech', 'jochem-brouwer'],
-  core: ['lightclient', 'SamWilsn', 'g11tech', 'jochem-brouwer'],
-  erc: ['SamWilsn', 'xinbenlv'],
-  networking: ['lightclient', 'SamWilsn', 'g11tech', 'jochem-brouwer'],
-  interface: ['lightclient', 'SamWilsn', 'g11tech', 'jochem-brouwer'],
-  meta: ['lightclient', 'SamWilsn', 'xinbenlv', 'g11tech', 'jochem-brouwer'],
-  informational: ['lightclient', 'SamWilsn', 'xinbenlv', 'g11tech', 'jochem-brouwer'],
+  governance: ['lightclient', 'SamWilsn', 'xinbenlv', 'nconsigny', 'jochem-brouwer'],
+  core: ['axic', 'Pandapip1', 'gcolvin', 'lightclient'],
+  erc: ['SamWilsn', 'xinbenlv', 'abcoathup'],
+  networking: ['yoavw', 'CarlBeek', 'adietrichs'],
+  interface: ['yoavw', 'CarlBeek', 'lightclient'],
+  meta: ['lightclient', 'SamWilsn', 'nconsigny', 'jochem-brouwer', 'abcoathup'],
+  informational: ['lightclient', 'SamWilsn', 'xinbenlv', 'abcoathup'],
 };
 
 const getEditorsByCategoryCached = unstable_cache(
-  async (repo: string | null) => {
+  async (repo: string | null, from: string | null, to: string | null) => {
     // Try activity-based derivation first (requires populated pull_request_eips)
     const results = await prisma.$queryRawUnsafe<Array<{
       category: string;
@@ -749,20 +818,27 @@ const getEditorsByCategoryCached = unstable_cache(
       review_count: bigint;
     }>>(
       `
-      WITH pr_eip AS (
+      WITH editor_map AS (
+        SELECT canonical, actor_lc
+        FROM UNNEST($4::text[], $5::text[]) AS x(canonical, actor_lc)
+      ),
+      pr_eip AS (
         SELECT pr.id AS pr_id, pr.pr_number, pr.repository_id, pre.eip_number
         FROM pull_requests pr
         JOIN pull_request_eips pre ON pre.pr_number = pr.pr_number AND pre.repository_id = pr.repository_id
       ),
       review_with_category AS (
-        SELECT pe.actor, COALESCE(LOWER(TRIM(es.category)), 'unknown') AS category
+        SELECT em.canonical AS actor, COALESCE(LOWER(TRIM(es.category)), 'unknown') AS category
         FROM pr_events pe
+        JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
         JOIN pr_eip prpe ON prpe.pr_number = pe.pr_number AND prpe.repository_id = pe.repository_id
         JOIN eips e ON e.eip_number = prpe.eip_number
         JOIN eip_snapshots es ON es.eip_id = e.id
         LEFT JOIN repositories r ON r.id = pe.repository_id
         WHERE pe.actor_role = 'EDITOR'
           AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND ($2::text IS NULL OR pe.created_at >= $2::timestamp)
+          AND ($3::text IS NULL OR pe.created_at <= $3::timestamp)
       ),
       ranked AS (
         SELECT category, actor, COUNT(*)::bigint AS review_count,
@@ -772,7 +848,11 @@ const getEditorsByCategoryCached = unstable_cache(
       )
       SELECT category, actor, review_count FROM ranked WHERE rn <= 20 ORDER BY category, rn
     `,
-      repo
+      repo,
+      from,
+      to,
+      Array.from(CANONICAL_EIP_EDITORS),
+      CANONICAL_EIP_EDITOR_LOWER
     );
 
     const byCategory: Record<string, string[]> = {};
@@ -785,7 +865,12 @@ const getEditorsByCategoryCached = unstable_cache(
     // If activity data is empty (pull_request_eips not populated yet),
     // fall back to the official governance-defined editor assignments.
     const hasActivityData = Object.values(byCategory).some((arr) => arr.length > 0);
-    const source = hasActivityData ? byCategory : OFFICIAL_EDITORS_BY_CATEGORY;
+    const hasDateFilter = Boolean(from || to);
+    const source = hasActivityData
+      ? byCategory
+      : hasDateFilter
+        ? byCategory
+        : OFFICIAL_EDITORS_BY_CATEGORY;
 
     const order = ['governance', 'core', 'erc', 'networking', 'interface', 'meta', 'informational'];
     return order.map((category) => ({ category, actors: source[category] ?? [] }));
@@ -798,18 +883,32 @@ const getEditorsRepoDistributionCached = unstable_cache(
   async (actor: string | null, repo: string | null, from: string | null, to: string | null) => {
     const results = await prisma.$queryRawUnsafe<Array<{ actor: string; repo: string; count: bigint; pct: number }>>(
       `
-      WITH base AS (
-        SELECT ca.actor, COALESCE(r.name, 'Unknown') AS repo
-        FROM contributor_activity ca
-        LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE LOWER(ca.actor) = ANY(
-          SELECT LOWER(x) FROM UNNEST($5::text[]) AS x
-        )
-          AND ($1::text IS NULL OR ca.actor = $1)
-          AND ($2::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($2))
-          AND ($3::text IS NULL OR ca.occurred_at >= $3::timestamp)
-          AND ($4::text IS NULL OR ca.occurred_at <= $4::timestamp)
-          AND ca.pr_number > 0
+      WITH editor_map AS (
+        SELECT canonical, actor_lc
+        FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+      ),
+      raw_events AS (
+        SELECT
+          em.canonical AS actor,
+          COALESCE(r.name, 'Unknown') AS repo,
+          CASE
+            WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+              THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+            ELSE pe.created_at
+          END AS occurred_at
+        FROM pr_events pe
+        JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+        LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+        LEFT JOIN repositories r ON r.id = pe.repository_id
+        WHERE pe.pr_number > 0
+      ),
+      base AS (
+        SELECT actor, repo
+        FROM raw_events
+        WHERE ($1::text IS NULL OR LOWER(actor) = LOWER($1))
+          AND ($2::text IS NULL OR LOWER(SPLIT_PART(repo, '/', 2)) = LOWER($2))
+          AND ($3::text IS NULL OR occurred_at >= $3::timestamp)
+          AND ($4::text IS NULL OR occurred_at <= $4::timestamp)
       ),
       totals AS (SELECT actor, COUNT(*) AS total FROM base GROUP BY actor)
       SELECT b.actor, b.repo, COUNT(*)::bigint AS count,
@@ -818,7 +917,7 @@ const getEditorsRepoDistributionCached = unstable_cache(
       GROUP BY b.actor, b.repo, t.total
       ORDER BY b.actor, count DESC
     `,
-      actor, repo, from, to, Array.from(new Set(Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()))
+      actor, repo, from, to, Array.from(CANONICAL_EIP_EDITORS), CANONICAL_EIP_EDITOR_LOWER
     );
     return results.map((r) => ({
       actor: r.actor,
@@ -835,12 +934,16 @@ const getReviewersRepoDistributionCached = unstable_cache(
   async (actor: string | null, repo: string | null, from: string | null, to: string | null) => {
     const results = await prisma.$queryRawUnsafe<Array<{ actor: string; repo: string; count: bigint; pct: number }>>(
       `
-      WITH base AS (
-        SELECT ca.actor, COALESCE(r.name, 'Unknown') AS repo
+      WITH reviewer_map AS (
+        SELECT canonical, actor_lc
+        FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+      ),
+      base AS (
+        SELECT rm.canonical AS actor, COALESCE(r.name, 'Unknown') AS repo
         FROM contributor_activity ca
+        JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
         LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE (UPPER(ca.role) = 'REVIEWER' OR (ca.action_type = 'reviewed' AND (ca.role IS NULL OR UPPER(ca.role) != 'EDITOR')))
-          AND ($1::text IS NULL OR ca.actor = $1)
+        WHERE ($1::text IS NULL OR LOWER(rm.canonical) = LOWER($1))
           AND ($2::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($2))
           AND ($3::text IS NULL OR ca.occurred_at >= $3::timestamp)
           AND ($4::text IS NULL OR ca.occurred_at <= $4::timestamp)
@@ -852,7 +955,7 @@ const getReviewersRepoDistributionCached = unstable_cache(
       GROUP BY b.actor, b.repo, t.total
       ORDER BY b.actor, count DESC
     `,
-      actor, repo, from, to
+      actor, repo, from, to, Array.from(CANONICAL_EIP_REVIEWERS), CANONICAL_EIP_REVIEWER_LOWER
     );
     return results.map((r) => ({
       actor: r.actor,
@@ -1879,7 +1982,6 @@ export const analyticsProcedures = {
                    CASE COALESCE(gs.current_state, 'NO_STATE')
                      WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
                      WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-                     WHEN 'STALLED' THEN 'Stagnant'
                      WHEN 'DRAFT' THEN 'AWAITED'
                      ELSE 'Uncategorized'
                    END
@@ -1976,7 +2078,6 @@ export const analyticsProcedures = {
                  CASE COALESCE(gs.current_state, 'NO_STATE')
                    WHEN 'WAITING_ON_EDITOR' THEN 'Waiting on Editor'
                    WHEN 'WAITING_ON_AUTHOR' THEN 'Waiting on Author'
-                   WHEN 'STALLED' THEN 'Stagnant'
                    WHEN 'DRAFT' THEN 'AWAITED'
                    ELSE 'Uncategorized'
                  END
@@ -3690,32 +3791,299 @@ export const analyticsProcedures = {
         count: bigint;
       }>>(
         `
-        SELECT
-          TO_CHAR(date_trunc('day', ca.occurred_at), 'YYYY-MM-DD') AS date,
-          COUNT(*)::bigint AS count
-        FROM contributor_activity ca
-        LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE LOWER(ca.actor) = ANY(
-          SELECT LOWER(x) FROM UNNEST($5::text[]) AS x
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            em.canonical AS actor,
+            pe.repository_id,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
         )
-          AND ($1::text IS NULL OR ca.actor = $1)
-          AND ($2::text IS NULL OR ca.occurred_at >= $2::timestamp)
-          AND ($3::text IS NULL OR ca.occurred_at <= $3::timestamp)
+        SELECT
+          TO_CHAR(date_trunc('day', re.occurred_at), 'YYYY-MM-DD') AS date,
+          COUNT(*)::bigint AS count
+        FROM raw_events re
+        LEFT JOIN repositories r ON r.id = re.repository_id
+        WHERE ($1::text IS NULL OR LOWER(re.actor) = LOWER($1))
+          AND ($2::text IS NULL OR re.occurred_at >= $2::timestamp)
+          AND ($3::text IS NULL OR re.occurred_at <= $3::timestamp)
           AND ($4::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($4))
-          AND ca.pr_number > 0
-        GROUP BY date_trunc('day', ca.occurred_at)
+        GROUP BY date_trunc('day', re.occurred_at)
         ORDER BY date ASC
       `,
         input.actor ?? null,
         input.from ?? null,
         input.to ?? null,
         input.repo ?? null,
-        Array.from(new Set(Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()))
+        Array.from(CANONICAL_EIP_EDITORS),
+        CANONICAL_EIP_EDITOR_LOWER
       );
 
       return results.map((r) => ({
         date: r.date,
         count: Number(r.count),
+      }));
+    }),
+
+  getEditorDailyActivityStacked: optionalAuthProcedure
+    .input(z.object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        date: string;
+        actor: string;
+        count: bigint;
+      }>>(
+        `
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($4::text[], $5::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            em.canonical AS actor,
+            pe.repository_id,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
+        )
+        SELECT
+          TO_CHAR(date_trunc('day', re.occurred_at), 'YYYY-MM-DD') AS date,
+          re.actor,
+          COUNT(*)::bigint AS count
+        FROM raw_events re
+        LEFT JOIN repositories r ON r.id = re.repository_id
+        WHERE ($1::text IS NULL OR re.occurred_at >= $1::timestamp)
+          AND ($2::text IS NULL OR re.occurred_at <= $2::timestamp)
+          AND ($3::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($3))
+        GROUP BY date_trunc('day', re.occurred_at), re.actor
+        ORDER BY date ASC, re.actor ASC
+      `,
+        input.from ?? null,
+        input.to ?? null,
+        input.repo ?? null,
+        Array.from(CANONICAL_EIP_EDITORS),
+        CANONICAL_EIP_EDITOR_LOWER
+      );
+
+      return results.map((r) => ({
+        date: r.date,
+        actor: r.actor,
+        count: Number(r.count),
+      }));
+    }),
+
+  getEditorActionDetails: optionalAuthProcedure
+    .input(z.object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      limit: z.number().optional().default(500),
+    }))
+    .handler(async ({ input }) => {
+      const rows = await prisma.$queryRawUnsafe<Array<{
+        actor: string;
+        event_type: string;
+        acted_at: string;
+        pr_number: number;
+        repo_short: string | null;
+        title: string | null;
+        event_url: string | null;
+      }>>(
+        `
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            em.canonical AS actor,
+            pe.event_type,
+            pe.pr_number,
+            pe.repository_id,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
+        )
+        SELECT
+          re.actor,
+          re.event_type,
+          TO_CHAR(re.occurred_at, 'YYYY-MM-DD HH24:MI:SS') AS acted_at,
+          re.pr_number,
+          LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short,
+          pr.title,
+          CONCAT('https://github.com/', r.name, '/pull/', re.pr_number::text) AS event_url
+        FROM raw_events re
+        LEFT JOIN repositories r ON r.id = re.repository_id
+        LEFT JOIN pull_requests pr ON pr.pr_number = re.pr_number AND pr.repository_id = re.repository_id
+        WHERE ($1::text IS NULL OR re.occurred_at >= $1::timestamp)
+          AND ($2::text IS NULL OR re.occurred_at <= $2::timestamp)
+          AND ($3::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($3))
+        ORDER BY re.occurred_at DESC
+        LIMIT $4
+      `,
+        input.from ?? null,
+        input.to ?? null,
+        input.repo ?? null,
+        input.limit ?? 500,
+        Array.from(CANONICAL_EIP_EDITORS),
+        CANONICAL_EIP_EDITOR_LOWER
+      );
+
+      return rows.map((r) => ({
+        actor: r.actor,
+        eventType: r.event_type,
+        actedAt: r.acted_at,
+        prNumber: r.pr_number,
+        repoShort: r.repo_short ?? 'unknown',
+        title: r.title ?? '',
+        eventUrl: r.event_url,
+      }));
+    }),
+
+  getReviewerDailyActivityStacked: optionalAuthProcedure
+    .input(z.object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        date: string;
+        actor: string;
+        count: bigint;
+      }>>(
+        `
+        WITH reviewer_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($4::text[], $5::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            rm.canonical AS actor,
+            ca.repository_id,
+            ca.occurred_at
+          FROM contributor_activity ca
+          JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
+          WHERE ca.pr_number > 0
+        )
+        SELECT
+          TO_CHAR(date_trunc('day', re.occurred_at), 'YYYY-MM-DD') AS date,
+          re.actor,
+          COUNT(*)::bigint AS count
+        FROM raw_events re
+        LEFT JOIN repositories r ON r.id = re.repository_id
+        WHERE ($1::text IS NULL OR re.occurred_at >= $1::timestamp)
+          AND ($2::text IS NULL OR re.occurred_at <= $2::timestamp)
+          AND ($3::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($3))
+        GROUP BY date_trunc('day', re.occurred_at), re.actor
+        ORDER BY date ASC, re.actor ASC
+      `,
+        input.from ?? null,
+        input.to ?? null,
+        input.repo ?? null,
+        Array.from(CANONICAL_EIP_REVIEWERS),
+        CANONICAL_EIP_REVIEWER_LOWER
+      );
+
+      return results.map((r) => ({
+        date: r.date,
+        actor: r.actor,
+        count: Number(r.count),
+      }));
+    }),
+
+  getReviewerActionDetails: optionalAuthProcedure
+    .input(z.object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      limit: z.number().optional().default(500),
+    }))
+    .handler(async ({ input }) => {
+      const rows = await prisma.$queryRawUnsafe<Array<{
+        actor: string;
+        event_type: string;
+        acted_at: string;
+        pr_number: number;
+        repo_short: string | null;
+        title: string | null;
+        event_url: string | null;
+      }>>(
+        `
+        WITH reviewer_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            rm.canonical AS actor,
+            ca.action_type AS event_type,
+            ca.pr_number,
+            ca.repository_id,
+            ca.occurred_at
+          FROM contributor_activity ca
+          JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
+          WHERE ca.pr_number > 0
+        )
+        SELECT
+          re.actor,
+          re.event_type,
+          TO_CHAR(re.occurred_at, 'YYYY-MM-DD HH24:MI:SS') AS acted_at,
+          re.pr_number,
+          LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short,
+          pr.title,
+          CONCAT('https://github.com/', r.name, '/pull/', re.pr_number::text) AS event_url
+        FROM raw_events re
+        LEFT JOIN repositories r ON r.id = re.repository_id
+        LEFT JOIN pull_requests pr ON pr.pr_number = re.pr_number AND pr.repository_id = re.repository_id
+        WHERE ($1::text IS NULL OR re.occurred_at >= $1::timestamp)
+          AND ($2::text IS NULL OR re.occurred_at <= $2::timestamp)
+          AND ($3::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($3))
+        ORDER BY re.occurred_at DESC
+        LIMIT $4
+      `,
+        input.from ?? null,
+        input.to ?? null,
+        input.repo ?? null,
+        input.limit ?? 500,
+        Array.from(CANONICAL_EIP_REVIEWERS),
+        CANONICAL_EIP_REVIEWER_LOWER
+      );
+
+      return rows.map((r) => ({
+        actor: r.actor,
+        eventType: r.event_type,
+        actedAt: r.acted_at,
+        prNumber: r.pr_number,
+        repoShort: r.repo_short ?? 'unknown',
+        title: r.title ?? '',
+        eventUrl: r.event_url,
       }));
     }),
 
@@ -3733,23 +4101,45 @@ export const analyticsProcedures = {
         prisma.$queryRawUnsafe<Array<{
           total_authors: bigint;
           new_authors: bigint;
+          repeat_authors: bigint;
           prs_created: bigint;
+          authors_with_merged: bigint;
         }>>(
           `
-          WITH pr_authors AS (
-            SELECT DISTINCT pr.author, pr.created_at
+          WITH scoped_prs AS (
+            SELECT pr.author, pr.created_at, pr.merged_at
             FROM pull_requests pr
             JOIN repositories r ON pr.repository_id = r.id
             WHERE pr.author IS NOT NULL
+              AND LOWER(pr.author) NOT LIKE '%bot%'
               AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
               AND ($2::text IS NULL OR pr.created_at >= $2::timestamp)
               AND ($3::text IS NULL OR pr.created_at <= $3::timestamp)
+          ),
+          author_first_seen AS (
+            SELECT pr.author, MIN(pr.created_at) AS first_created_at
+            FROM pull_requests pr
+            JOIN repositories r ON pr.repository_id = r.id
+            WHERE pr.author IS NOT NULL
+              AND LOWER(pr.author) NOT LIKE '%bot%'
+              AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+            GROUP BY pr.author
+          ),
+          scoped_authors AS (
+            SELECT DISTINCT author FROM scoped_prs
           )
           SELECT
-            COUNT(DISTINCT author)::bigint as total_authors,
-            COUNT(DISTINCT author) FILTER (WHERE created_at >= $4::timestamp)::bigint as new_authors,
-            COUNT(*)::bigint as prs_created
-          FROM pr_authors
+            (SELECT COUNT(*)::bigint FROM scoped_authors) as total_authors,
+            (SELECT COUNT(*)::bigint
+             FROM scoped_authors sa
+             JOIN author_first_seen afs ON afs.author = sa.author
+             WHERE afs.first_created_at >= $4::timestamp) as new_authors,
+            (SELECT COUNT(*)::bigint
+             FROM scoped_authors sa
+             JOIN author_first_seen afs ON afs.author = sa.author
+             WHERE afs.first_created_at < $4::timestamp) as repeat_authors,
+            (SELECT COUNT(*)::bigint FROM scoped_prs) as prs_created,
+            (SELECT COUNT(DISTINCT author)::bigint FROM scoped_prs WHERE merged_at IS NOT NULL) as authors_with_merged
         `,
           input.repo ?? null,
           input.from ?? null,
@@ -3765,6 +4155,7 @@ export const analyticsProcedures = {
           JOIN eip_snapshots s ON s.eip_id = e.id
           LEFT JOIN repositories r ON s.repository_id = r.id
           WHERE e.author IS NOT NULL
+            AND LOWER(e.author) NOT LIKE '%bot%'
             AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
         `,
           input.repo ?? null
@@ -3774,7 +4165,9 @@ export const analyticsProcedures = {
       const prRow = prStats[0] || {
         total_authors: BigInt(0),
         new_authors: BigInt(0),
+        repeat_authors: BigInt(0),
         prs_created: BigInt(0),
+        authors_with_merged: BigInt(0),
       };
       const eipRow = eipStats[0] || {
         eips_authored: BigInt(0),
@@ -3783,9 +4176,138 @@ export const analyticsProcedures = {
       return {
         totalAuthors: Number(prRow.total_authors),
         newAuthors: Number(prRow.new_authors),
+        repeatAuthors: Number(prRow.repeat_authors),
         prsCreated: Number(prRow.prs_created),
+        proposalsAuthored: Number(prRow.prs_created),
+        authorsWithMerged: Number(prRow.authors_with_merged),
         eipsAuthored: Number(eipRow.eips_authored),
       };
+    }),
+
+  getAuthorCohortTimeline: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      months: z.number().optional().default(12),
+    }))
+    .handler(async ({ input }) => {
+      const rows = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        active_authors: bigint;
+        new_authors: bigint;
+        returning_authors: bigint;
+        proposals_authored: bigint;
+      }>>(
+        `
+        WITH author_first_month AS (
+          SELECT
+            pr.author,
+            date_trunc('month', MIN(pr.created_at)) AS first_month
+          FROM pull_requests pr
+          JOIN repositories r ON pr.repository_id = r.id
+          WHERE pr.author IS NOT NULL
+            AND LOWER(pr.author) NOT LIKE '%bot%'
+            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          GROUP BY pr.author
+        ),
+        monthly_author_activity AS (
+          SELECT
+            date_trunc('month', pr.created_at) AS month_bucket,
+            pr.author,
+            COUNT(*)::bigint AS proposals
+          FROM pull_requests pr
+          JOIN repositories r ON pr.repository_id = r.id
+          WHERE pr.author IS NOT NULL
+            AND LOWER(pr.author) NOT LIKE '%bot%'
+            AND ($2::text IS NULL OR pr.created_at >= $2::timestamp)
+            AND ($3::text IS NULL OR pr.created_at <= $3::timestamp)
+            AND (
+              ($2::text IS NOT NULL OR $3::text IS NOT NULL)
+              OR $4::int IS NULL
+              OR pr.created_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $4)
+            )
+            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          GROUP BY date_trunc('month', pr.created_at), pr.author
+        )
+        SELECT
+          TO_CHAR(maa.month_bucket, 'YYYY-MM') AS month,
+          COUNT(DISTINCT maa.author)::bigint AS active_authors,
+          COUNT(DISTINCT maa.author) FILTER (WHERE afm.first_month = maa.month_bucket)::bigint AS new_authors,
+          (COUNT(DISTINCT maa.author) - COUNT(DISTINCT maa.author) FILTER (WHERE afm.first_month = maa.month_bucket))::bigint AS returning_authors,
+          SUM(maa.proposals)::bigint AS proposals_authored
+        FROM monthly_author_activity maa
+        JOIN author_first_month afm ON afm.author = maa.author
+        GROUP BY maa.month_bucket
+        ORDER BY month ASC
+      `,
+        input.repo ?? null,
+        input.from ?? null,
+        input.to ?? null,
+        input.months != null ? (input.months || 12) - 1 : null
+      );
+
+      return rows.map((r) => ({
+        month: r.month,
+        activeAuthors: Number(r.active_authors),
+        newAuthors: Number(r.new_authors),
+        returningAuthors: Number(r.returning_authors),
+        proposalsAuthored: Number(r.proposals_authored),
+      }));
+    }),
+
+  getAuthorRepoComposition: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
+    .handler(async ({ input }) => {
+      const rows = await prisma.$queryRawUnsafe<Array<{
+        repo: string;
+        unique_authors: bigint;
+        repeat_authors: bigint;
+        proposals: bigint;
+      }>>(
+        `
+        WITH base AS (
+          SELECT
+            pr.author,
+            LOWER(SPLIT_PART(r.name, '/', 2)) AS repo
+          FROM pull_requests pr
+          JOIN repositories r ON pr.repository_id = r.id
+          WHERE pr.author IS NOT NULL
+            AND LOWER(pr.author) NOT LIKE '%bot%'
+            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+            AND ($2::text IS NULL OR pr.created_at >= $2::timestamp)
+            AND ($3::text IS NULL OR pr.created_at <= $3::timestamp)
+        ),
+        author_totals AS (
+          SELECT author, COUNT(*) AS authored_count
+          FROM base
+          GROUP BY author
+        )
+        SELECT
+          b.repo,
+          COUNT(DISTINCT b.author)::bigint AS unique_authors,
+          COUNT(DISTINCT b.author) FILTER (WHERE at.authored_count > 1)::bigint AS repeat_authors,
+          COUNT(*)::bigint AS proposals
+        FROM base b
+        JOIN author_totals at ON at.author = b.author
+        GROUP BY b.repo
+        ORDER BY proposals DESC
+      `,
+        input.repo ?? null,
+        input.from ?? null,
+        input.to ?? null
+      );
+
+      return rows.map((r) => ({
+        repo: r.repo,
+        uniqueAuthors: Number(r.unique_authors),
+        repeatAuthors: Number(r.repeat_authors),
+        proposals: Number(r.proposals),
+      }));
     }),
 
   getAuthorActivityTimeline: optionalAuthProcedure
@@ -3893,8 +4415,12 @@ export const analyticsProcedures = {
         author: string;
         prs_created: bigint;
         prs_merged: bigint;
+        prs_open: bigint;
+        prs_closed: bigint;
         avg_time_to_merge: number | null;
+        first_seen: string | null;
         last_activity: string | null;
+        top_repo: string | null;
       }>>(
         `
         WITH author_stats AS (
@@ -3902,18 +4428,39 @@ export const analyticsProcedures = {
             pr.author,
             COUNT(*)::bigint as prs_created,
             COUNT(*) FILTER (WHERE pr.merged_at IS NOT NULL)::bigint as prs_merged,
+            COUNT(*) FILTER (WHERE pr.merged_at IS NULL AND pr.state = 'open')::bigint as prs_open,
+            COUNT(*) FILTER (WHERE pr.merged_at IS NULL AND pr.state = 'closed')::bigint as prs_closed,
             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(DAY FROM (pr.merged_at - pr.created_at))) FILTER (WHERE pr.merged_at IS NOT NULL)::numeric as avg_time_to_merge,
+            MIN(pr.created_at)::text as first_seen,
             MAX(pr.updated_at)::text as last_activity
           FROM pull_requests pr
           JOIN repositories r ON pr.repository_id = r.id
           WHERE pr.author IS NOT NULL
+            AND LOWER(pr.author) NOT LIKE '%bot%'
             AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
             AND ($2::text IS NULL OR pr.created_at >= $2::timestamp)
             AND ($3::text IS NULL OR pr.created_at <= $3::timestamp)
           GROUP BY pr.author
+        ),
+        author_repo_rank AS (
+          SELECT
+            pr.author,
+            LOWER(SPLIT_PART(r.name, '/', 2)) AS repo_short,
+            COUNT(*)::bigint AS cnt,
+            ROW_NUMBER() OVER (PARTITION BY pr.author ORDER BY COUNT(*) DESC, LOWER(SPLIT_PART(r.name, '/', 2)) ASC) AS rn
+          FROM pull_requests pr
+          JOIN repositories r ON pr.repository_id = r.id
+          WHERE pr.author IS NOT NULL
+            AND LOWER(pr.author) NOT LIKE '%bot%'
+            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+            AND ($2::text IS NULL OR pr.created_at >= $2::timestamp)
+            AND ($3::text IS NULL OR pr.created_at <= $3::timestamp)
+          GROUP BY pr.author, LOWER(SPLIT_PART(r.name, '/', 2))
         )
-        SELECT * FROM author_stats
-        ORDER BY prs_created DESC
+        SELECT a.*, rr.repo_short AS top_repo
+        FROM author_stats a
+        LEFT JOIN author_repo_rank rr ON rr.author = a.author AND rr.rn = 1
+        ORDER BY a.prs_created DESC
         LIMIT $4
       `,
         input.repo ?? null,
@@ -3926,8 +4473,12 @@ export const analyticsProcedures = {
         author: r.author,
         prsCreated: Number(r.prs_created),
         prsMerged: Number(r.prs_merged),
+        prsOpen: Number(r.prs_open),
+        prsClosed: Number(r.prs_closed),
         avgTimeToMerge: r.avg_time_to_merge != null ? Math.round(Number(r.avg_time_to_merge)) : null,
+        firstSeen: r.first_seen,
         lastActivity: r.last_activity,
+        topRepo: r.top_repo,
       }));
     }),
 
@@ -3953,6 +4504,7 @@ export const analyticsProcedures = {
       repo: z.enum(['eips', 'ercs', 'rips']).optional(),
       from: z.string().optional(),
       to: z.string().optional(),
+      actor: z.string().optional(),
     }))
     .handler(async ({ context, input }) => {
       await requireTier(context, 'pro');
@@ -3967,33 +4519,56 @@ export const analyticsProcedures = {
           action_type: string;
         }>>(
           `
-          SELECT ca.actor, ca.pr_number, r.name AS repo_name,
-                 TO_CHAR(ca.occurred_at, 'YYYY-MM-DD HH24:MI:SS') AS occurred_at,
-                 ca.action_type AS action_type
-          FROM contributor_activity ca
-          LEFT JOIN repositories r ON r.id = ca.repository_id
-          WHERE LOWER(ca.actor) = ANY(
-            SELECT LOWER(x) FROM UNNEST($4::text[]) AS x
+          WITH editor_map AS (
+            SELECT canonical, actor_lc
+            FROM UNNEST($4::text[], $5::text[]) AS x(canonical, actor_lc)
+          ),
+          raw_events AS (
+            SELECT
+              em.canonical AS actor,
+              pe.pr_number,
+              pe.repository_id,
+              pe.event_type AS action_type,
+              CASE
+                WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                  THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+                ELSE pe.created_at
+              END AS occurred_at
+            FROM pr_events pe
+            JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+            LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+            WHERE pe.pr_number > 0
           )
-            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-            AND ($2::text IS NULL OR ca.occurred_at >= $2::timestamp)
-            AND ($3::text IS NULL OR ca.occurred_at <= $3::timestamp)
-            AND ca.pr_number > 0
-          ORDER BY ca.actor, ca.occurred_at ASC
+          SELECT re.actor, re.pr_number, r.name AS repo_name,
+                 TO_CHAR(re.occurred_at, 'YYYY-MM-DD HH24:MI:SS') AS occurred_at,
+                 re.action_type
+          FROM raw_events re
+          LEFT JOIN repositories r ON r.id = re.repository_id
+          WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+            AND ($2::text IS NULL OR re.occurred_at >= $2::timestamp)
+            AND ($3::text IS NULL OR re.occurred_at <= $3::timestamp)
+            AND ($6::text IS NULL OR LOWER(re.actor) = LOWER($6))
+          ORDER BY re.actor, re.occurred_at ASC
           LIMIT 10000
           `,
           input.repo ?? null,
           input.from ?? null,
           input.to ?? null,
-          Array.from(new Set(Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()))
+          Array.from(CANONICAL_EIP_EDITORS),
+          CANONICAL_EIP_EDITOR_LOWER,
+          input.actor ?? null
         ),
       ]);
+
+      const filteredSummary = input.actor
+        ? summary.filter((row) => row.actor.toLowerCase() === input.actor!.toLowerCase())
+        : summary;
 
       const escape = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
 
       const summaryRows = [
         'Rank,Editor,Total Actions,Reviews,Comments,PRs Touched,Median Response (days)',
-        ...summary.map((r, i) =>
+        ...filteredSummary.map((r, i) =>
           [i + 1, r.actor, r.totalActions, r.reviews, r.comments, r.prsTouched, r.medianResponseDays ?? ''].map(escape).join(',')
         ),
       ];
@@ -4010,7 +4585,8 @@ export const analyticsProcedures = {
       const monthLabel = input.from
         ? `${input.from.slice(0, 7)}`
         : new Date().toISOString().slice(0, 7);
-      const filename = `editors-leaderboard-${monthLabel}.csv`;
+      const actorSuffix = input.actor ? `-${input.actor.toLowerCase()}` : '';
+      const filename = `editors-leaderboard${actorSuffix}-${monthLabel}.csv`;
 
       return { csv, filename };
     }),
@@ -4032,9 +4608,17 @@ export const analyticsProcedures = {
     }),
 
   getEditorsByCategory: optionalAuthProcedure
-    .input(z.object({ repo: z.enum(['eips', 'ercs', 'rips']).optional() }))
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
     .handler(async ({ input }) => {
-      return getEditorsByCategoryCached(input.repo ?? null);
+      return getEditorsByCategoryCached(
+        input.repo ?? null,
+        input.from ?? null,
+        input.to ?? null
+      );
     }),
 
   getEditorsRepoDistribution: optionalAuthProcedure
@@ -4081,24 +4665,39 @@ export const analyticsProcedures = {
         count: bigint;
       }>>(
         `
-        SELECT
-          TO_CHAR(date_trunc('month', ca.occurred_at), 'YYYY-MM') as month,
-          ca.actor,
-          COUNT(*)::bigint as count
-        FROM contributor_activity ca
-        LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE LOWER(ca.actor) = ANY(
-          SELECT LOWER(x) FROM UNNEST($3::text[]) AS x
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($3::text[], $4::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            em.canonical AS actor,
+            pe.repository_id,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
         )
-          AND ca.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
+        SELECT
+          TO_CHAR(date_trunc('month', re.occurred_at), 'YYYY-MM') as month,
+          re.actor AS actor,
+          COUNT(*)::bigint as count
+        FROM raw_events re
+        LEFT JOIN repositories r ON r.id = re.repository_id
+        WHERE re.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
           AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-          AND ca.pr_number > 0
-        GROUP BY date_trunc('month', ca.occurred_at), ca.actor
+        GROUP BY date_trunc('month', re.occurred_at), re.actor
         ORDER BY month ASC, count DESC
       `,
         input.repo ?? null,
         (input.months || 12) - 1,
-        Array.from(new Set(Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()))
+        Array.from(CANONICAL_EIP_EDITORS),
+        CANONICAL_EIP_EDITOR_LOWER
       );
       
       // Group by month and aggregate top editors
@@ -4124,6 +4723,76 @@ export const analyticsProcedures = {
       }));
     }),
 
+  getEditorsMonthlyReviewedPRs: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      months: z.number().optional().default(12),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        actor: string;
+        count: bigint;
+      }>>(
+        `
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($3::text[], $4::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_reviews AS (
+          SELECT
+            em.canonical AS actor,
+            pe.pr_number,
+            pe.repository_id,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
+            AND pe.event_type IN ('reviewed', 'approved', 'changes_requested')
+        )
+        SELECT
+          TO_CHAR(date_trunc('month', rr.occurred_at), 'YYYY-MM') as month,
+          rr.actor,
+          COUNT(DISTINCT rr.pr_number)::bigint as count
+        FROM raw_reviews rr
+        LEFT JOIN repositories r ON r.id = rr.repository_id
+        WHERE rr.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
+          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        GROUP BY date_trunc('month', rr.occurred_at), rr.actor
+        ORDER BY month ASC, count DESC
+      `,
+        input.repo ?? null,
+        (input.months || 12) - 1,
+        Array.from(CANONICAL_EIP_EDITORS),
+        CANONICAL_EIP_EDITOR_LOWER
+      );
+
+      const byMonth: Record<string, Record<string, number>> = {};
+      results.forEach((r) => {
+        if (!byMonth[r.month]) byMonth[r.month] = {};
+        byMonth[r.month][r.actor] = Number(r.count);
+      });
+
+      const totals: Record<string, number> = {};
+      results.forEach((r) => {
+        totals[r.actor] = (totals[r.actor] || 0) + Number(r.count);
+      });
+      const topActors = Object.entries(totals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([actor]) => actor);
+
+      return Object.entries(byMonth).map(([month, actors]) => ({
+        month,
+        ...Object.fromEntries(topActors.map((actor) => [actor, actors[actor] || 0])),
+      }));
+    }),
+
   getReviewersMonthlyTrend: optionalAuthProcedure
     .input(z.object({
       repo: z.enum(['eips', 'ercs', 'rips']).optional(),
@@ -4136,20 +4805,26 @@ export const analyticsProcedures = {
         count: bigint;
       }>>(
         `
+        WITH reviewer_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($3::text[], $4::text[]) AS x(canonical, actor_lc)
+        )
         SELECT
           TO_CHAR(date_trunc('month', ca.occurred_at), 'YYYY-MM') as month,
-          ca.actor,
+          rm.canonical as actor,
           COUNT(*)::bigint as count
         FROM contributor_activity ca
+        JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
         LEFT JOIN repositories r ON r.id = ca.repository_id
-        WHERE (UPPER(ca.role) = 'REVIEWER' OR (ca.action_type = 'reviewed' AND (ca.role IS NULL OR UPPER(ca.role) != 'EDITOR')))
-          AND ca.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
+        WHERE ca.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
           AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
-        GROUP BY date_trunc('month', ca.occurred_at), ca.actor
+        GROUP BY date_trunc('month', ca.occurred_at), rm.canonical
         ORDER BY month ASC, count DESC
       `,
         input.repo ?? null,
-        (input.months || 12) - 1
+        (input.months || 12) - 1,
+        Array.from(CANONICAL_EIP_REVIEWERS),
+        CANONICAL_EIP_REVIEWER_LOWER
       );
       
       // Group by month and aggregate top reviewers
@@ -4175,6 +4850,71 @@ export const analyticsProcedures = {
       }));
     }),
 
+  getReviewersMonthlyReviewedPRs: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      months: z.number().optional().default(12),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        actor: string;
+        count: bigint;
+      }>>(
+        `
+        WITH reviewer_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($3::text[], $4::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_reviews AS (
+          SELECT
+            rm.canonical AS actor,
+            ca.pr_number,
+            ca.repository_id,
+            ca.occurred_at
+          FROM contributor_activity ca
+          JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
+          WHERE ca.pr_number > 0
+            AND ca.action_type = 'reviewed'
+        )
+        SELECT
+          TO_CHAR(date_trunc('month', rr.occurred_at), 'YYYY-MM') as month,
+          rr.actor,
+          COUNT(DISTINCT rr.pr_number)::bigint as count
+        FROM raw_reviews rr
+        LEFT JOIN repositories r ON r.id = rr.repository_id
+        WHERE rr.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
+          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        GROUP BY date_trunc('month', rr.occurred_at), rr.actor
+        ORDER BY month ASC, count DESC
+      `,
+        input.repo ?? null,
+        (input.months || 12) - 1,
+        Array.from(CANONICAL_EIP_REVIEWERS),
+        CANONICAL_EIP_REVIEWER_LOWER
+      );
+
+      const byMonth: Record<string, Record<string, number>> = {};
+      results.forEach((r) => {
+        if (!byMonth[r.month]) byMonth[r.month] = {};
+        byMonth[r.month][r.actor] = Number(r.count);
+      });
+
+      const totals: Record<string, number> = {};
+      results.forEach((r) => {
+        totals[r.actor] = (totals[r.actor] || 0) + Number(r.count);
+      });
+      const topActors = Object.entries(totals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([actor]) => actor);
+
+      return Object.entries(byMonth).map(([month, actors]) => ({
+        month,
+        ...Object.fromEntries(topActors.map((actor) => [actor, actors[actor] || 0])),
+      }));
+    }),
+
   getReviewerCyclesPerPR: optionalAuthProcedure
     .input(z.object({
       repo: z.enum(['eips', 'ercs', 'rips']).optional(),
@@ -4185,15 +4925,19 @@ export const analyticsProcedures = {
         count: bigint;
       }>>(
         `
-        WITH pr_review_counts AS (
+        WITH reviewer_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($2::text[], $3::text[]) AS x(canonical, actor_lc)
+        ),
+        pr_review_counts AS (
           SELECT 
             ca.pr_number,
             ca.repository_id,
-            COUNT(DISTINCT ca.actor) FILTER (WHERE ca.action_type = 'reviewed') as review_cycles
+            COUNT(DISTINCT rm.canonical) FILTER (WHERE ca.action_type = 'reviewed') as review_cycles
           FROM contributor_activity ca
+          JOIN reviewer_map rm ON LOWER(ca.actor) = rm.actor_lc
           LEFT JOIN repositories r ON r.id = ca.repository_id
-          WHERE (UPPER(ca.role) = 'REVIEWER' OR (ca.action_type = 'reviewed' AND (ca.role IS NULL OR UPPER(ca.role) != 'EDITOR')))
-            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
           GROUP BY ca.pr_number, ca.repository_id
         )
         SELECT 
@@ -4204,7 +4948,9 @@ export const analyticsProcedures = {
         GROUP BY review_cycles
         ORDER BY cycles ASC
       `,
-        input.repo ?? null
+        input.repo ?? null,
+        Array.from(CANONICAL_EIP_REVIEWERS),
+        CANONICAL_EIP_REVIEWER_LOWER
       );
       
       return results.map(r => ({
@@ -4285,8 +5031,7 @@ export const analyticsProcedures = {
     }),
 
   // ——— Monthly Editor Leaderboard ———
-  // Activity-based metric for official editors in the selected month:
-  // total_actions = all contributor_activity rows, prs_touched = distinct PRs acted on.
+  // Activity-based metric for official editors in the selected month.
   getMonthlyEditorLeaderboard: optionalAuthProcedure
     .input(z.object({
       limit: z.number().optional().default(10),
@@ -4302,9 +5047,7 @@ export const analyticsProcedures = {
       const monthStart = `${baseDate.getUTCFullYear()}-${String(baseDate.getUTCMonth() + 1).padStart(2, '0')}-01`;
       const nextMonth = `${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth() + 1).padStart(2, '0')}-01`;
 
-      const allEditors = Array.from(new Set(
-        Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()
-      ));
+      const allEditors = Array.from(CANONICAL_EIP_EDITORS);
       const repoRows = input.repo
         ? await prisma.$queryRawUnsafe<Array<{ id: number }>>(
             `SELECT id
@@ -4322,24 +5065,39 @@ export const analyticsProcedures = {
         latest_occurred_at: Date | null;
       }>>(
         `
-        SELECT
-          ca.actor AS actor,
-          COUNT(*)::bigint AS total_actions,
-          COUNT(DISTINCT ca.pr_number)::bigint AS prs_touched,
-          MAX(ca.occurred_at) AS latest_occurred_at
-        FROM contributor_activity ca
-        WHERE LOWER(ca.actor) = ANY(
-          SELECT LOWER(x) FROM UNNEST($1::text[]) AS x
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($1::text[], $6::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
+          SELECT
+            em.canonical AS actor,
+            pe.pr_number,
+            pe.repository_id,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
         )
-          AND ca.occurred_at >= $2::date
-          AND ca.occurred_at < $3::date
-          AND ($5::int[] IS NULL OR ca.repository_id = ANY($5))
-          AND ca.pr_number > 0
-        GROUP BY ca.actor
-        ORDER BY total_actions DESC, prs_touched DESC, ca.actor ASC
+        SELECT
+          re.actor AS actor,
+          COUNT(*)::bigint AS total_actions,
+          COUNT(DISTINCT re.pr_number)::bigint AS prs_touched,
+          MAX(re.occurred_at) AS latest_occurred_at
+        FROM raw_events re
+        WHERE re.occurred_at >= $2::date
+          AND re.occurred_at < $3::date
+          AND ($5::int[] IS NULL OR re.repository_id = ANY($5))
+        GROUP BY re.actor
+        ORDER BY total_actions DESC, prs_touched DESC, re.actor ASC
         LIMIT $4
         `,
-        allEditors, monthStart, nextMonth, input.limit, repoIds
+        allEditors, monthStart, nextMonth, input.limit, repoIds, CANONICAL_EIP_EDITOR_LOWER
       );
 
       const items = results.map((r) => ({
@@ -4366,6 +5124,7 @@ export const analyticsProcedures = {
       limit: z.number().optional().default(10),
       monthYear: z.string().regex(/^\d{4}-\d{2}$/).optional(),
       repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      actor: z.string().optional(),
     }))
     .handler(async ({ input }) => {
       const now = new Date();
@@ -4377,9 +5136,7 @@ export const analyticsProcedures = {
       const monthStart = `${monthYear}-01`;
       const nextMonth = `${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth() + 1).padStart(2, '0')}-01`;
 
-      const allEditors = Array.from(new Set(
-        Object.values(OFFICIAL_EDITORS_BY_CATEGORY).flat()
-      ));
+      const allEditors = Array.from(CANONICAL_EIP_EDITORS);
       const repoRows = input.repo
         ? await prisma.$queryRawUnsafe<Array<{ id: number }>>(
             `SELECT id
@@ -4405,21 +5162,39 @@ export const analyticsProcedures = {
         governance_state: string | null;
       }>>(
         `
-        WITH leaders AS (
+        WITH editor_map AS (
+          SELECT canonical, actor_lc
+          FROM UNNEST($1::text[], $6::text[]) AS x(canonical, actor_lc)
+        ),
+        raw_events AS (
           SELECT
-            ca.actor AS editor,
+            em.canonical AS editor,
+            pe.repository_id,
+            pe.pr_number,
+            pe.event_type,
+            pe.metadata,
+            CASE
+              WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
+                THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
+              ELSE pe.created_at
+            END AS occurred_at
+          FROM pr_events pe
+          JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
+          WHERE pe.pr_number > 0
+        ),
+        leaders AS (
+          SELECT
+            re.editor,
             COUNT(*)::bigint AS total_actions,
-            COUNT(DISTINCT ca.pr_number)::bigint AS prs_touched
-          FROM contributor_activity ca
-          WHERE LOWER(ca.actor) = ANY(
-            SELECT LOWER(x) FROM UNNEST($1::text[]) AS x
-          )
-            AND ca.occurred_at >= $2::date
-            AND ca.occurred_at < $3::date
-            AND ($5::int[] IS NULL OR ca.repository_id = ANY($5))
-            AND ca.pr_number > 0
-          GROUP BY ca.actor
-          ORDER BY total_actions DESC, prs_touched DESC, ca.actor ASC
+            COUNT(DISTINCT re.pr_number)::bigint AS prs_touched
+          FROM raw_events re
+          WHERE re.occurred_at >= $2::date
+            AND re.occurred_at < $3::date
+            AND ($5::int[] IS NULL OR re.repository_id = ANY($5))
+            AND ($7::text IS NULL OR LOWER(re.editor) = LOWER($7))
+          GROUP BY re.editor
+          ORDER BY total_actions DESC, prs_touched DESC, re.editor ASC
           LIMIT $4
         ),
         ranked AS (
@@ -4437,40 +5212,27 @@ export const analyticsProcedures = {
             r.total_actions,
             r.prs_touched,
             repo.name AS repo,
-            ca.pr_number,
+            re.pr_number,
             pr.title AS pr_title,
-            ca.action_type,
-            ca.occurred_at,
+            re.event_type AS action_type,
+            re.occurred_at,
             gs.current_state AS governance_state,
-            pe.event_type,
-            pe.review_state
+            re.event_type,
+            re.metadata->>'review_state' AS review_state
           FROM ranked r
-          JOIN contributor_activity ca
-            ON LOWER(ca.actor) = LOWER(r.editor)
+          JOIN raw_events re
+            ON LOWER(re.editor) = LOWER(r.editor)
           LEFT JOIN repositories repo
-            ON repo.id = ca.repository_id
+            ON repo.id = re.repository_id
           LEFT JOIN pull_requests pr
-            ON pr.pr_number = ca.pr_number
-           AND pr.repository_id = ca.repository_id
+            ON pr.pr_number = re.pr_number
+           AND pr.repository_id = re.repository_id
           LEFT JOIN pr_governance_state gs
-            ON gs.pr_number = ca.pr_number
-           AND gs.repository_id = ca.repository_id
-          LEFT JOIN LATERAL (
-            SELECT
-              e.event_type,
-              e.metadata->>'review_state' AS review_state
-            FROM pr_events e
-            WHERE e.pr_number = ca.pr_number
-              AND e.repository_id = ca.repository_id
-              AND LOWER(e.actor) = LOWER(ca.actor)
-              AND e.created_at BETWEEN ca.occurred_at - INTERVAL '12 hours' AND ca.occurred_at + INTERVAL '12 hours'
-            ORDER BY ABS(EXTRACT(EPOCH FROM (e.created_at - ca.occurred_at))) ASC
-            LIMIT 1
-          ) pe ON TRUE
-          WHERE ca.occurred_at >= $2::date
-            AND ca.occurred_at < $3::date
-            AND ($5::int[] IS NULL OR ca.repository_id = ANY($5))
-            AND ca.pr_number > 0
+            ON gs.pr_number = re.pr_number
+           AND gs.repository_id = re.repository_id
+          WHERE re.occurred_at >= $2::date
+            AND re.occurred_at < $3::date
+            AND ($5::int[] IS NULL OR re.repository_id = ANY($5))
         )
         SELECT
           editor,
@@ -4492,7 +5254,9 @@ export const analyticsProcedures = {
         monthStart,
         nextMonth,
         input.limit,
-        repoIds
+        repoIds,
+        CANONICAL_EIP_EDITOR_LOWER,
+        input.actor ?? null
       );
 
       const escapeCsv = (value: string | number | null | undefined) =>
@@ -4532,7 +5296,7 @@ export const analyticsProcedures = {
 
       return {
         csv: [header, ...body].join('\n'),
-        filename: `editor-leaderboard-detailed-${input.repo ?? 'all'}-${monthYear}.csv`,
+        filename: `editor-leaderboard-detailed-${input.repo ?? 'all'}-${input.actor ? `${input.actor.toLowerCase()}-` : ''}${monthYear}.csv`,
       };
     }),
 }

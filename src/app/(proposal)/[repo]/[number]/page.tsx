@@ -15,7 +15,10 @@ import {
   Check,
   FileCode,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  Newspaper,
+  Sparkles,
+  BookOpen
 } from 'lucide-react';
 import { client } from '@/lib/orpc';
 import { Button } from '@/components/ui/button';
@@ -26,6 +29,7 @@ import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ProposalSubscriptionCard } from '@/components/proposal-subscription-card';
 import { RepositorySubscriptionCard } from '@/components/repository-subscription-card';
+import { rawData, pairedUpgradeNames } from '@/data/network-upgrades';
 
 // Status color mapping for timeline - richer colors
 const statusColors: Record<string, { 
@@ -136,6 +140,102 @@ interface UpgradeInclusion {
   commit_date: string | null;
 }
 
+interface ResourceArticle {
+  title: string;
+  url: string;
+  excerpt: string;
+  publishedAt: string;
+}
+
+interface ResourceVideo {
+  title: string;
+  url: string;
+  description: string;
+}
+
+interface AiResourceRecommendation {
+  kind: 'text' | 'audio' | 'video' | 'discussion';
+  label: string;
+  url: string;
+  reason: string;
+}
+
+interface LiveSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+function getHistoricalUpgradeSlug(name: string, date: string): string {
+  const pairedName = pairedUpgradeNames[date];
+  if (pairedName === 'Shapella') return 'shanghai';
+  if (pairedName === 'Dencun') return 'cancun';
+  if (pairedName === 'Pectra') return 'pectra';
+  if (pairedName === 'Fusaka') return 'fusaka';
+
+  const directMap: Record<string, string> = {
+    'frontier thawing': 'frontier-thawing',
+    frontier: 'frontier',
+    homestead: 'homestead',
+    'dao fork': 'dao-fork',
+    'tangerine whistle': 'tangerine-whistle',
+    'spurious dragon': 'spurious-dragon',
+    byzantium: 'byzantium',
+    constantinople: 'constantinople',
+    petersburg: 'petersburg',
+    istanbul: 'istanbul',
+    'muir glacier': 'muir-glacier',
+    berlin: 'berlin',
+    london: 'london',
+    altair: 'altair',
+    'arrow glacier': 'arrow-glacier',
+    'gray glacier': 'gray-glacier',
+    bellatrix: 'bellatrix',
+    paris: 'paris',
+    shanghai: 'shanghai',
+    capella: 'capella',
+    cancun: 'cancun',
+    deneb: 'deneb',
+    prague: 'pectra',
+    electra: 'pectra',
+    osaka: 'fusaka',
+    fulu: 'fusaka',
+  };
+
+  return directMap[name.toLowerCase()] ?? name.toLowerCase().replace(/\s+/g, '-');
+}
+
+function getHistoricalIncludedUpgrades(eipNumber: number): UpgradeInclusion[] {
+  const normalized = String(eipNumber);
+  const mergeTimestamp = new Date('2022-09-15').getTime();
+  const entries = new Map<string, UpgradeInclusion>();
+
+  rawData.forEach((item) => {
+    const includesEip = item.eips.some((value) => value.replace('EIP-', '').replace('-removed', '') === normalized);
+    if (!includesEip) return;
+
+    const itemTime = new Date(item.date).getTime();
+    const displayName =
+      itemTime > mergeTimestamp && pairedUpgradeNames[item.date]
+        ? pairedUpgradeNames[item.date]
+        : item.upgrade;
+    const slug = getHistoricalUpgradeSlug(displayName, item.date);
+    const key = `${item.date}:${slug}`;
+
+    if (!entries.has(key)) {
+      entries.set(key, {
+        upgrade_id: -(entries.size + 1),
+        name: displayName,
+        slug,
+        bucket: 'included',
+        commit_date: new Date(item.date).toISOString(),
+      });
+    }
+  });
+
+  return Array.from(entries.values());
+}
+
 type ProposalRepo = 'eip' | 'erc' | 'rip';
 
 function formatInclusionBucket(bucket: string | null): string {
@@ -233,6 +333,12 @@ export default function ProposalDetailPage() {
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
   const [governanceState, setGovernanceState] = useState<GovernanceState | null>(null);
   const [upgrades, setUpgrades] = useState<UpgradeInclusion[]>([]);
+  const [resourceArticles, setResourceArticles] = useState<ResourceArticle[]>([]);
+  const [resourceVideos, setResourceVideos] = useState<ResourceVideo[]>([]);
+  const [aiRecommendations, setAiRecommendations] = useState<AiResourceRecommendation[]>([]);
+  const [webSuggestions, setWebSuggestions] = useState<LiveSearchResult[]>([]);
+  const [videoSuggestions, setVideoSuggestions] = useState<LiveSearchResult[]>([]);
+  const [resourceLoading, setResourceLoading] = useState(false);
   const [markdownContent, setMarkdownContent] = useState<string | null>(null);
   const [markdownLoading, setMarkdownLoading] = useState(false);
   const [markdownError, setMarkdownError] = useState<string | null>(null);
@@ -254,7 +360,7 @@ export default function ProposalDetailPage() {
   const repoPath = normalizedRepo === 'eip' ? 'EIPs' : normalizedRepo === 'erc' ? 'ERCs' : 'RIPs';
   const filePath = normalizedRepo === 'eip' ? 'EIPS' : normalizedRepo === 'erc' ? 'ERCS' : 'RIPS';
   const fileName = `${normalizedRepo}-${number}.md`;
-  const latestUpgrade = upgrades[0] ?? null;
+  const latestUpgrade = upgrades.find((upgrade) => upgrade.bucket.toLowerCase() === 'included') ?? upgrades[0] ?? null;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -272,7 +378,23 @@ export default function ProposalDetailPage() {
         setProposal(proposalData);
         setStatusEvents(statusData);
         setGovernanceState(governanceData);
-        setUpgrades(upgradesData);
+        const historical = getHistoricalIncludedUpgrades(number);
+        const mergedBySlug = new Map<string, UpgradeInclusion>();
+        upgradesData.forEach((entry) => mergedBySlug.set(entry.slug || entry.name.toLowerCase(), entry));
+        historical.forEach((entry) => {
+          const key = entry.slug || entry.name.toLowerCase();
+          if (!mergedBySlug.has(key)) {
+            mergedBySlug.set(key, entry);
+          }
+        });
+
+        const mergedUpgrades = Array.from(mergedBySlug.values()).sort((a, b) => {
+          const aTime = a.commit_date ? new Date(a.commit_date).getTime() : 0;
+          const bTime = b.commit_date ? new Date(b.commit_date).getTime() : 0;
+          return bTime - aTime;
+        });
+
+        setUpgrades(mergedUpgrades);
       } catch (err: unknown) {
         console.error('Failed to fetch proposal data:', err);
         const message = err instanceof Error ? err.message : 'Failed to load proposal';
@@ -322,6 +444,46 @@ export default function ProposalDetailPage() {
 
     fetchContent();
   }, [proposal, proposalRepo, number, markdownContent]);
+
+  useEffect(() => {
+    if (!proposal?.title) return;
+
+    let cancelled = false;
+    const fetchResources = async () => {
+      try {
+        setResourceLoading(true);
+        const res = await fetch('/api/proposal-resources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            number,
+            title: proposal.title,
+          }),
+        });
+
+        const data = await res.json();
+        if (cancelled) return;
+
+        setResourceArticles(Array.isArray(data.articles) ? data.articles : []);
+        setResourceVideos(Array.isArray(data.videos) ? data.videos : []);
+        setAiRecommendations(Array.isArray(data.aiRecommendations) ? data.aiRecommendations : []);
+        setWebSuggestions(Array.isArray(data.webSuggestions) ? data.webSuggestions : []);
+        setVideoSuggestions(Array.isArray(data.videoSuggestions) ? data.videoSuggestions : []);
+      } catch {
+        if (cancelled) return;
+        setResourceArticles([]);
+        setResourceVideos([]);
+        setAiRecommendations([]);
+        setWebSuggestions([]);
+        setVideoSuggestions([]);
+      } finally {
+        if (!cancelled) setResourceLoading(false);
+      }
+    };
+
+    fetchResources();
+    return () => { cancelled = true; };
+  }, [number, proposal?.title]);
 
   // Fetch AI summary when markdown content is available
   useEffect(() => {
@@ -411,7 +573,7 @@ export default function ProposalDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="w-full border-b border-border bg-card/40">
-        <div className="mx-auto max-w-7xl px-4 pb-6 pt-10 sm:px-6 sm:pb-8 sm:pt-12">
+        <div className="mx-auto w-full px-3 pb-6 pt-10 sm:px-4 sm:pb-8 sm:pt-12 lg:px-5 xl:px-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 space-y-3">
                 {/* Repo badge and copy link */}
@@ -525,10 +687,10 @@ export default function ProposalDetailPage() {
           </div>
       </div>
 
-        <div className="mx-auto mt-8 max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
-          <div className="space-y-6">
+        <div className="mx-auto mt-6 w-full px-3 pb-10 sm:px-4 lg:px-5 xl:px-6">
+          <div className="space-y-4">
           {/* 2. Preamble Table (RFC-style, flat, authoritative) */}
-          <div>
+          <div id="preamble" className="scroll-mt-28">
             <div className="overflow-hidden rounded-xl border border-border bg-card/60">
               <table className="w-full border-collapse">
                 <tbody className="divide-y divide-border/70">
@@ -632,6 +794,108 @@ export default function ProposalDetailPage() {
             </div>
           </div>
 
+          {/* 3. Lifecycle Timeline */}
+          {statusEvents.length > 0 && (
+            <motion.div
+              id="lifecycle"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="scroll-mt-28 rounded-xl border border-border bg-card/60 p-6"
+            >
+              <div className="mb-6 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lifecycle Timeline</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link href={`/tools/timeline?repo=${normalizedRepo}s&number=${proposal.number}`}>
+                    <Button variant="outline" size="sm" className="h-8 border-border bg-muted/50 text-xs text-foreground hover:bg-muted">
+                      Show Full Timeline
+                    </Button>
+                  </Link>
+                  {proposal.status && (
+                    <span className={cn(
+                      "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold",
+                      statusColors[proposal.status]?.bg || 'bg-slate-500/20',
+                      statusColors[proposal.status]?.text || 'text-slate-300',
+                      statusColors[proposal.status]?.border || 'border-slate-400/30'
+                    )}>
+                      {proposal.status}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="relative overflow-x-auto pb-2">
+                <div className="absolute left-6 right-6 top-3 h-px bg-border/80" />
+                <div className="relative flex min-w-max items-start gap-4 pr-4">
+                  {statusEvents.map((event, index) => {
+                    const prevEvent = index > 0 ? statusEvents[index - 1] : null;
+                    const duration = calculateDuration(prevEvent?.changed_at || null, event.changed_at);
+                    const eventColor = statusColors[event.to] || statusColors.Draft;
+                    const commitUrl = event.commit_sha && event.commit_sha.trim() !== ''
+                      ? `https://github.com/ethereum/${repoPath}/commit/${event.commit_sha}`
+                      : null;
+                    const isLatest = index === statusEvents.length - 1;
+
+                    return (
+                      <div key={`${event.changed_at}-${event.to}-${index}`} className="w-[280px] shrink-0">
+                        <div className="mb-3 flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "h-3 w-3 rounded-full ring-2 ring-background",
+                              eventColor.dot,
+                              isLatest && "shadow-md shadow-primary/30"
+                            )}
+                          />
+                          {index < statusEvents.length - 1 && (
+                            <div className="h-px flex-1 bg-border/70" />
+                          )}
+                        </div>
+
+                        <div className={cn("rounded-lg border border-border/70 bg-muted/30 p-4", isLatest && "border-primary/30 bg-primary/5")}>
+                          <div className="flex items-center gap-2">
+                            {event.from && (
+                              <>
+                                <span className={cn("rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", statusColors[event.from]?.bg || "bg-muted", statusColors[event.from]?.text || "text-foreground")}>
+                                  {event.from}
+                                </span>
+                                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                              </>
+                            )}
+                            <span className={cn("rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", eventColor.bg, eventColor.text, eventColor.border)}>
+                              {event.to}
+                            </span>
+                          </div>
+
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            {new Date(event.changed_at).toLocaleString()}
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                            {duration && prevEvent && <span>{duration} in {prevEvent.to}</span>}
+                            {event.commit_sha && <span className="font-mono">{event.commit_sha.slice(0, 8)}</span>}
+                            {commitUrl && (
+                              <a
+                                href={commitUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-primary hover:text-primary/80"
+                              >
+                                <Github className="h-3.5 w-3.5" />
+                                View commit
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           <ProposalSubscriptionCard
             repo={normalizedRepo as 'eip' | 'erc' | 'rip'}
             number={number}
@@ -642,15 +906,16 @@ export default function ProposalDetailPage() {
             repo={normalizedRepo as 'eip' | 'erc' | 'rip'}
           />
 
-          {/* 3. Governance Signals + Lifecycle Timeline (Together) */}
+          {/* 4. Governance Signals */}
           <div className="space-y-8">
             {/* Governance Signals */}
             {governanceState && (governanceState.waiting_on || governanceState.days_since_last_action !== null) && (
               <motion.div
+                id="governance"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
-                className="rounded-xl border border-border bg-card/60 p-6"
+                className="scroll-mt-28 rounded-xl border border-border bg-card/60 p-6"
               >
                 <div className="flex items-center gap-2 mb-4">
                   <Activity className="h-5 w-5 text-primary" />
@@ -679,109 +944,16 @@ export default function ProposalDetailPage() {
                 </div>
               </motion.div>
             )}
-
-            {/* Lifecycle Timeline */}
-            {statusEvents.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.1 }}
-                className="rounded-xl border border-border bg-card/60 p-6"
-              >
-                <div className="mb-6 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-primary" />
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lifecycle Timeline</h3>
-                  </div>
-                  {proposal.status && (
-                    <span className={cn(
-                      "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold",
-                      statusColors[proposal.status]?.bg || 'bg-slate-500/20',
-                      statusColors[proposal.status]?.text || 'text-slate-300',
-                      statusColors[proposal.status]?.border || 'border-slate-400/30'
-                    )}>
-                      {proposal.status}
-                    </span>
-                  )}
-                </div>
-                <div className="relative overflow-x-auto pb-2">
-                  <div className="absolute left-6 right-6 top-3 h-px bg-border/80" />
-                  <div className="relative flex min-w-max items-start gap-4 pr-4">
-                    {statusEvents.map((event, index) => {
-                      const prevEvent = index > 0 ? statusEvents[index - 1] : null;
-                      const duration = calculateDuration(prevEvent?.changed_at || null, event.changed_at);
-                      const eventColor = statusColors[event.to] || statusColors.Draft;
-                      const commitUrl = event.commit_sha && event.commit_sha.trim() !== ''
-                        ? `https://github.com/ethereum/${repoPath}/commit/${event.commit_sha}`
-                        : null;
-                      const isLatest = index === statusEvents.length - 1;
-
-                      return (
-                        <div key={`${event.changed_at}-${event.to}-${index}`} className="w-[280px] shrink-0">
-                          <div className="mb-3 flex items-center gap-2">
-                            <span
-                              className={cn(
-                                "h-3 w-3 rounded-full ring-2 ring-background",
-                                eventColor.dot,
-                                isLatest && "shadow-md shadow-primary/30"
-                              )}
-                            />
-                            {index < statusEvents.length - 1 && (
-                              <div className="h-px flex-1 bg-border/70" />
-                            )}
-                          </div>
-
-                          <div className={cn("rounded-lg border border-border/70 bg-muted/30 p-4", isLatest && "border-primary/30 bg-primary/5")}>
-                            <div className="flex items-center gap-2">
-                              {event.from && (
-                                <>
-                                  <span className={cn("rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", statusColors[event.from]?.bg || "bg-muted", statusColors[event.from]?.text || "text-foreground")}>
-                                    {event.from}
-                                  </span>
-                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                                </>
-                              )}
-                              <span className={cn("rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", eventColor.bg, eventColor.text, eventColor.border)}>
-                                {event.to}
-                              </span>
-                            </div>
-
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              {new Date(event.changed_at).toLocaleString()}
-                            </div>
-
-                            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                              {duration && prevEvent && <span>{duration} in {prevEvent.to}</span>}
-                              {event.commit_sha && <span className="font-mono">{event.commit_sha.slice(0, 8)}</span>}
-                              {commitUrl && (
-                                <a
-                                  href={commitUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-primary hover:text-primary/80"
-                                >
-                                  <Github className="h-3.5 w-3.5" />
-                                  View commit
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </motion.div>
-            )}
           </div>
 
-          {/* 4. Upgrade Participation */}
+          {/* 5. Upgrade Participation */}
           {upgrades.length > 0 && (
             <motion.div
+              id="upgrades"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              className="rounded-xl border border-border bg-card/60 p-6"
+              className="scroll-mt-28 rounded-xl border border-border bg-card/60 p-6"
             >
               <div className="flex items-center gap-2 mb-4">
                 <Package className="h-5 w-5 text-primary" />
@@ -829,78 +1001,205 @@ export default function ProposalDetailPage() {
             </motion.div>
           )}
 
-          {/* 5. Canonical Proposal Text (Markdown body only) */}
+          {/* 6. Proposal Body */}
           <motion.div
+            id="proposal-text"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="flex flex-col overflow-hidden rounded-xl border border-border bg-card/60 p-8"
+            className="scroll-mt-28 flex flex-col overflow-hidden"
           >
-            {/* Copy as Markdown button */}
-            {markdownContent && (
-              <div className="flex items-center justify-end mb-8">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleCopyMarkdown}
-                        className="border-border bg-muted/50 text-foreground hover:bg-muted"
-                      >
-                        {markdownCopied ? (
-                          <>
-                            <Check className="h-3.5 w-3.5 mr-1.5" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <FileCode className="h-3.5 w-3.5 mr-1.5" />
-                            Copy as Markdown
-                          </>
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Copy proposal markdown to clipboard</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            )}
+                {markdownContent && (
+                  <div className="mb-4 flex items-center justify-end">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleCopyMarkdown}
+                            className="border-border bg-muted/50 text-foreground hover:bg-muted"
+                          >
+                            {markdownCopied ? (
+                              <>
+                                <Check className="mr-1.5 h-3.5 w-3.5" />
+                                Copied!
+                              </>
+                            ) : (
+                              <>
+                                <FileCode className="mr-1.5 h-3.5 w-3.5" />
+                                Copy as Markdown
+                              </>
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Copy proposal markdown to clipboard</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                )}
 
-            {markdownLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-              </div>
-            ) : markdownError ? (
-              <div className="text-center py-12">
-                <AlertCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                <p className="mb-4 text-sm text-muted-foreground">{markdownError}</p>
-                <a
-                  href={githubUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80"
-                >
-                  View on GitHub instead <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </div>
-            ) : markdownContent ? (
-              <MarkdownRenderer
-                content={markdownContent}
-                skipPreamble={true}
-                stripDuplicateHeaders={true}
-              />
-            ) : null}
+                {markdownLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
+                  </div>
+                ) : markdownError ? (
+                  <div className="py-12 text-center">
+                    <AlertCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                    <p className="mb-4 text-sm text-muted-foreground">{markdownError}</p>
+                    <a
+                      href={githubUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80"
+                    >
+                      View on GitHub instead <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                ) : markdownContent ? (
+                  <MarkdownRenderer
+                    content={markdownContent}
+                    skipPreamble={true}
+                    stripDuplicateHeaders={true}
+                    collapsibleSections={true}
+                  />
+                ) : null}
           </motion.div>
 
-          {/* 6. External Links */}
+          <motion.section
+            id="resources"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.42 }}
+            className="scroll-mt-28 rounded-xl border border-border bg-card/60 p-6"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resources</h3>
+              <Link
+                href={`/resources?q=${encodeURIComponent(`EIP-${proposal.number}`)}`}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Open Resources Hub
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="space-y-2 rounded-lg border border-border/70 bg-muted/25 p-3">
+                <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Web Suggestions
+                </p>
+                {webSuggestions.slice(0, 6).map((item, idx) => (
+                  <a
+                    key={`${item.url}-${idx}`}
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group block rounded-md border border-border bg-background/60 p-2.5 transition-colors hover:border-primary/40 hover:bg-muted/50"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <BookOpen className="h-3.5 w-3.5 text-emerald-500" />
+                      {item.title}
+                    </div>
+                    {item.snippet && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.snippet}</p>}
+                  </a>
+                ))}
+                {!resourceLoading && webSuggestions.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No live web suggestions found right now.</p>
+                )}
+                {aiRecommendations.slice(0, 2).map((item, idx) => (
+                  <a
+                    key={`${item.url}-ai-${idx}`}
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-md border border-dashed border-border bg-background/40 p-2 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  >
+                    AI fallback: {item.label}
+                  </a>
+                ))}
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-border/70 bg-muted/25 p-3">
+                <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Newspaper className="h-3.5 w-3.5" />
+                  Latest Articles
+                </p>
+                {resourceArticles.slice(0, 6).map((article, idx) => (
+                  <a
+                    key={`${article.url}-${idx}`}
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-md border border-border bg-background/60 p-2.5 transition-colors hover:border-primary/40 hover:bg-muted/50"
+                  >
+                    <p className="line-clamp-2 text-sm font-medium text-foreground">{article.title}</p>
+                    {article.publishedAt && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {new Date(article.publishedAt).toLocaleDateString()}
+                      </p>
+                    )}
+                  </a>
+                ))}
+                {!resourceLoading && resourceArticles.length === 0 && (
+                  <p className="text-xs text-muted-foreground">We don&apos;t have relevant articles for this proposal yet.</p>
+                )}
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-border/70 bg-muted/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Video & Audio</p>
+                {videoSuggestions.slice(0, 4).map((video, idx) => (
+                  <a
+                    key={`${video.url}-search-${idx}`}
+                    href={video.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-md border border-border bg-background/60 px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-muted/50"
+                  >
+                    {video.title}
+                  </a>
+                ))}
+                {resourceVideos.slice(0, 3).map((video, idx) => (
+                  <a
+                    key={`${video.url}-${idx}`}
+                    href={video.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-md border border-border bg-background/60 px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-muted/50"
+                  >
+                    {video.title}
+                  </a>
+                ))}
+                {!resourceLoading && videoSuggestions.length === 0 && resourceVideos.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No relevant video links found yet.</p>
+                )}
+                <a
+                  href={`https://www.google.com/search?q=${encodeURIComponent(`EIP-${proposal.number} podcast`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-md border border-border bg-background/60 px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-muted/50"
+                >
+                  Explore more podcasts
+                </a>
+                <a
+                  href={`https://ethereum-magicians.org/search?q=${encodeURIComponent(`EIP-${proposal.number}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-md border border-border bg-background/60 px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-muted/50"
+                >
+                  Open Magicians threads
+                </a>
+              </div>
+            </div>
+          </motion.section>
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.4 }}
-            className="rounded-xl border border-border bg-card/60 p-4"
+            className="border-t border-border/70 pt-4"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

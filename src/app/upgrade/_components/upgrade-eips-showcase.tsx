@@ -73,10 +73,17 @@ export function UpgradeEIPsShowcase({
   // Bucket order
   const bucketOrder = ['included', 'scheduled', 'proposed', 'considered', 'declined'];
   const orderedBuckets = bucketOrder.filter(b => compositionByBucket[b] && compositionByBucket[b].length > 0);
+  const allExpanded = orderedBuckets.length > 0 && orderedBuckets.every((bucket) => expandedBuckets.has(bucket));
 
   const showInitialRows = 2;
   const cardsPerRow = 3;
   const initialVisibleCount = showInitialRows * cardsPerRow;
+  const dashboardBreakdown = {
+    totalEips: composition.length,
+    inReview: compositionByBucket.considered?.length ?? 0,
+    blocked: compositionByBucket.declined?.length ?? 0,
+    readyForLastCall: compositionByBucket.scheduled?.length ?? 0,
+  };
 
   const EIPCard = ({ eip }: { eip: EIPItem }) => {
     const bucketColor = bucketColors[eip.bucket || ''] || bucketColors['proposed'];
@@ -154,13 +161,51 @@ export function UpgradeEIPsShowcase({
 
   return (
     <div className="space-y-5">
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-          {heading || `${upgradeName} EIPs`}
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {description}
-        </p>
+      <div className="space-y-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+              {heading || `${upgradeName} EIPs`}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {description}
+            </p>
+          </div>
+          {orderedBuckets.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (allExpanded) {
+                  setExpandedBuckets(new Set());
+                } else {
+                  setExpandedBuckets(new Set(orderedBuckets));
+                }
+              }}
+              className="inline-flex shrink-0 items-center rounded-md border border-border bg-muted/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+            >
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <div className="rounded-lg border border-border bg-card/60 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total EIPs</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{dashboardBreakdown.totalEips}</p>
+          </div>
+          <div className="rounded-lg border border-cyan-400/25 bg-cyan-500/8 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">In Review</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{dashboardBreakdown.inReview}</p>
+          </div>
+          <div className="rounded-lg border border-red-400/25 bg-red-500/8 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-300">Blocked</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{dashboardBreakdown.blocked}</p>
+          </div>
+          <div className="rounded-lg border border-amber-400/25 bg-amber-500/8 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">Ready for Last Call</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{dashboardBreakdown.readyForLastCall}</p>
+          </div>
+        </div>
       </div>
 
       {orderedBuckets.map((bucket) => {

@@ -213,7 +213,7 @@ export default function GovernanceOverTime() {
     });
   };
 
-  // Download CSV
+  // Download report
   const downloadCSV = () => {
     if (detailedData.length === 0) return;
 
@@ -522,6 +522,11 @@ export default function GovernanceOverTime() {
                         legendselectchanged: onLegendSelectChanged
                       }}
                     />
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="select-none text-sm font-medium tracking-[0.06em] text-foreground/12 dark:text-foreground/16 sm:text-base">
+                        EIPsInsight.com
+                      </span>
+                    </div>
                   </div>
                 ) : null}
               </motion.div>
@@ -656,7 +661,7 @@ export default function GovernanceOverTime() {
                   className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs text-primary transition-all hover:bg-primary/15"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  CSV
+                  Download Reports
                 </button>
               )}
             </div>

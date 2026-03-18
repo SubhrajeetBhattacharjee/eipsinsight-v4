@@ -1,6 +1,238 @@
 import { optionalAuthProcedure, type Ctx, ORPCError } from './types'
 import { prisma } from '@/lib/prisma'
 import * as z from 'zod'
+import { rawData, pairedUpgradeNames } from '@/data/network-upgrades'
+
+const AUTHOR_CANONICAL_OVERRIDES: Record<string, string> = {
+  vitalikbuterin: 'vbuterin',
+  vitalikethereumorg: 'vbuterin',
+  vitalik: 'vbuterin',
+  vbuterin: 'vbuterin',
+  timbeiko: 'timbeiko',
+  tkstanczak: 'tkstanczak',
+};
+
+function compactAuthorKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function toCanonicalAuthorKey(value: string): string {
+  const compact = compactAuthorKey(value);
+  return AUTHOR_CANONICAL_OVERRIDES[compact] ?? compact;
+}
+
+function extractAuthorParts(author: string): {
+  handles: string[];
+  fallbackKeys: string[];
+  namesByHandle: Record<string, string>;
+  displayCandidates: string[];
+} {
+  const pieces = author
+    .split(/[,;/]|(?:\s+and\s+)|(?:\s*&\s*)/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const handles = new Set<string>();
+  const fallbackKeys = new Set<string>();
+  const namesByHandle: Record<string, string> = {};
+  const displayCandidates = new Set<string>();
+
+  const addHandle = (rawHandle: string, displayName?: string) => {
+    const canonical = toCanonicalAuthorKey(rawHandle.replace(/^@+/, ''));
+    if (!canonical) return;
+    handles.add(canonical);
+    if (displayName) {
+      const clean = displayName.trim().replace(/\s+/g, ' ');
+      if (clean) {
+        namesByHandle[canonical] = clean;
+        displayCandidates.add(clean);
+      }
+    }
+  };
+
+  const addFallback = (raw: string) => {
+    const clean = raw.trim().replace(/\s+/g, ' ');
+    if (!clean) return;
+    const lower = clean.toLowerCase();
+    if (lower === 'et al.' || lower === 'et al') return;
+    displayCandidates.add(clean);
+    const canonical = toCanonicalAuthorKey(clean);
+    if (canonical) fallbackKeys.add(canonical);
+  };
+
+  pieces.forEach((piece) => {
+    const parenHandle = piece.match(/^(.+?)\s*\(@([a-z0-9-]+)\)$/i);
+    if (parenHandle) {
+      addHandle(parenHandle[2], parenHandle[1]);
+      addFallback(parenHandle[1]);
+      return;
+    }
+
+    const angle = piece.match(/^(.+?)\s*<([^>]+)>$/);
+    if (angle) {
+      const name = angle[1]?.trim();
+      const email = angle[2]?.trim();
+      if (name) addFallback(name);
+      if (email) {
+        const local = email.split('@')[0]?.trim();
+        if (local) {
+          addHandle(local, name || local);
+          fallbackKeys.add(toCanonicalAuthorKey(local));
+        }
+      }
+      return;
+    }
+
+    const soloHandle = piece.match(/^@([a-z0-9-]+)$/i);
+    if (soloHandle) {
+      addHandle(soloHandle[1]);
+      return;
+    }
+
+    const ghUrl = piece.match(/github\.com\/([a-z0-9-]+)/i);
+    if (ghUrl) {
+      addHandle(ghUrl[1]);
+      return;
+    }
+
+    addFallback(piece);
+  });
+
+  return {
+    handles: Array.from(handles),
+    fallbackKeys: Array.from(fallbackKeys),
+    namesByHandle,
+    displayCandidates: Array.from(displayCandidates),
+  };
+}
+
+function getCanonicalUpgradeName(upgrade: string, date: string): string {
+  const mergeTimestamp = new Date('2022-09-15').getTime();
+  const upgradeTimestamp = new Date(date).getTime();
+  if (upgradeTimestamp > mergeTimestamp && pairedUpgradeNames[date]) {
+    return pairedUpgradeNames[date];
+  }
+  return upgrade;
+}
+
+async function computeIndependentIncludedAuthorRows() {
+  const eipToUpgrades = new Map<number, Set<string>>();
+
+  rawData.forEach((item) => {
+    item.eips.forEach((value) => {
+      if (!value.startsWith('EIP-')) return;
+      const normalizedNumber = value.replace('EIP-', '').replace('-removed', '');
+      const eipNumber = Number(normalizedNumber);
+      if (!Number.isFinite(eipNumber)) return;
+
+      const upgradeName = getCanonicalUpgradeName(item.upgrade, item.date);
+      if (!eipToUpgrades.has(eipNumber)) {
+        eipToUpgrades.set(eipNumber, new Set<string>());
+      }
+      eipToUpgrades.get(eipNumber)?.add(upgradeName);
+    });
+  });
+
+  const eipNumbers = Array.from(eipToUpgrades.keys());
+  if (eipNumbers.length === 0) return [];
+
+  const eips = await prisma.eips.findMany({
+    where: { eip_number: { in: eipNumbers } },
+    select: {
+      eip_number: true,
+      title: true,
+      author: true,
+    },
+  });
+
+  const authorMap = new Map<string, {
+    eipNumbers: Set<number>;
+    upgrades: Set<string>;
+    displayNames: Map<string, number>;
+    handles: Map<string, number>;
+  }>();
+  const eipTitleMap = new Map<number, string>();
+  const emptyParsedParts: ReturnType<typeof extractAuthorParts> = {
+    handles: [],
+    fallbackKeys: [],
+    namesByHandle: {},
+    displayCandidates: [],
+  };
+
+  const parsedByEip = eips.map((eip) => ({
+    eip,
+    parsed: eip.author ? extractAuthorParts(eip.author) : emptyParsedParts,
+  }));
+
+  const aliasToHandle = new Map<string, string>();
+  parsedByEip.forEach(({ parsed }) => {
+    if (parsed.handles.length !== 1) return;
+    const handle = parsed.handles[0];
+    parsed.fallbackKeys.forEach((key) => {
+      if (!aliasToHandle.has(key)) {
+        aliasToHandle.set(key, handle);
+      }
+    });
+  });
+
+  parsedByEip.forEach(({ eip, parsed }) => {
+    if (!eip.author) return;
+    const authorKeys = parsed.handles.length > 0
+      ? parsed.handles
+      : parsed.fallbackKeys.map((key) => aliasToHandle.get(key) ?? key);
+    const uniqueAuthorKeys = Array.from(new Set(authorKeys.filter(Boolean)));
+    if (uniqueAuthorKeys.length === 0) return;
+
+    const upgrades = eipToUpgrades.get(eip.eip_number) ?? new Set<string>();
+    eipTitleMap.set(eip.eip_number, eip.title ?? '');
+
+    uniqueAuthorKeys.forEach((authorKey) => {
+      if (!authorMap.has(authorKey)) {
+        authorMap.set(authorKey, {
+          eipNumbers: new Set<number>(),
+          upgrades: new Set<string>(),
+          displayNames: new Map<string, number>(),
+          handles: new Map<string, number>(),
+        });
+      }
+      const record = authorMap.get(authorKey);
+      if (!record) return;
+
+      record.eipNumbers.add(eip.eip_number);
+      upgrades.forEach((upgrade) => record.upgrades.add(upgrade));
+
+      if (parsed.handles.includes(authorKey)) {
+        record.handles.set(authorKey, (record.handles.get(authorKey) ?? 0) + 1);
+      }
+      const displayForHandle = parsed.namesByHandle[authorKey];
+      if (displayForHandle) {
+        record.displayNames.set(displayForHandle, (record.displayNames.get(displayForHandle) ?? 0) + 1);
+      }
+    });
+  });
+
+  return Array.from(authorMap.entries())
+    .map(([authorKey, value]) => {
+      const sortedEips = Array.from(value.eipNumbers).sort((a, b) => a - b);
+      const sampleEip = sortedEips[0] ?? null;
+
+      return {
+        authorKey,
+        displayName:
+          Array.from(value.displayNames.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+          authorKey.replace(/[-_]/g, ' '),
+        githubHandle:
+          Array.from(value.handles.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+          null,
+        totalEips: sortedEips.length,
+        eipNumbers: sortedEips,
+        sampleEip,
+        sampleTitle: sampleEip ? (eipTitleMap.get(sampleEip) ?? '') : '',
+        upgrades: Array.from(value.upgrades).sort((a, b) => a.localeCompare(b)),
+      };
+    })
+    .sort((a, b) => (b.totalEips - a.totalEips) || a.authorKey.localeCompare(b.authorKey));
+}
 
 export const upgradesProcedures = {
   // List all upgrades with statistics
@@ -63,8 +295,7 @@ export const upgradesProcedures = {
   getUpgradeStats: optionalAuthProcedure
     .input(z.object({}))
     .handler(async ({ context }) => {
-
-      const [totalUpgrades, totalEIPs, executionUpgrades, consensusUpgrades, totalCoreEIPs] = await Promise.all([
+      const [totalUpgrades, totalEIPs, executionUpgrades, consensusUpgrades, totalCoreEIPs, independentAuthorRows] = await Promise.all([
         prisma.upgrades.count(),
         prisma.$queryRawUnsafe<Array<{ count: bigint }>>(`
           SELECT COUNT(DISTINCT eip_number)::bigint as count
@@ -83,6 +314,7 @@ export const upgradesProcedures = {
           JOIN eip_snapshots s ON s.eip_id = e.id
           WHERE s.category = 'Core'
         `).then(r => Number(r[0]?.count || 0)),
+        computeIndependentIncludedAuthorRows(),
       ]);
 
       return {
@@ -91,7 +323,14 @@ export const upgradesProcedures = {
         executionLayer: executionUpgrades,
         consensusLayer: consensusUpgrades,
         totalCoreEIPs,
+        independentIncludedAuthors: independentAuthorRows.length,
       };
+    }),
+
+  getIndependentIncludedAuthors: optionalAuthProcedure
+    .input(z.object({}))
+    .handler(async () => {
+      return computeIndependentIncludedAuthorRows();
     }),
 
   // Get upgrade by slug

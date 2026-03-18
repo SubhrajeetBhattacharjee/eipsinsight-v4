@@ -108,6 +108,7 @@ interface GovernanceWaitState {
 
 type TimeRange = "7d" | "30d" | "90d" | "1y" | "this_month" | "all" | "custom";
 type CrossTabMode = "process_x_state" | "state_x_process";
+type OpenPRDistributionMode = "process" | "participants";
 
 const PROCESS_COLORS: Record<string, string> = {
   "PR DRAFT": "#A78BFA",
@@ -118,12 +119,12 @@ const PROCESS_COLORS: Record<string, string> = {
   Tooling: "#F97316",
   "EIP-1": "#3B82F6",
   "Content Edit": "#64748B",
+  Misc: "#71717A",
 };
 
 const GOVERNANCE_COLORS: Record<string, string> = {
   "Waiting on Editor": "#60A5FA",
   "Waiting on Author": "#F59E0B",
-  Stagnant: "#EF4444",
   AWAITED: "#A78BFA",
   Uncategorized: "#64748B",
 };
@@ -203,9 +204,12 @@ export default function PRsAnalyticsPage() {
   const [openPRs, setOpenPRs] = useState<OpenPRRow[]>([]);
   const [processCategories, setProcessCategories] = useState<ProcessCategory[]>([]);
   const [govWaitStates, setGovWaitStates] = useState<GovernanceWaitState[]>([]);
+  const [processCategoriesByMonth, setProcessCategoriesByMonth] = useState<Array<{ month: string; rows: ProcessCategory[] }>>([]);
+  const [govWaitStatesByMonth, setGovWaitStatesByMonth] = useState<Array<{ month: string; rows: GovernanceWaitState[] }>>([]);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [crossTabMode, setCrossTabMode] = useState<CrossTabMode>("process_x_state");
+  const [openPRDistributionMode, setOpenPRDistributionMode] = useState<OpenPRDistributionMode>("process");
 
   const repoParam = repoFilter === "all" ? undefined : repoFilter;
 
@@ -244,18 +248,34 @@ export default function PRsAnalyticsPage() {
         setLabelStats(labels.slice(0, 20));
         setLifecycleStages(lifecycle);
 
-        const [tto, stale, procCat, govWait] = await Promise.all([
+        const monthBuckets = monthly.map((m) => m.month);
+
+        const [tto, stale, procCat, govWait, processTimeline, participantTimeline] = await Promise.all([
           client.analytics.getPRTimeToOutcome({ repo: repoParam }),
           client.analytics.getPRStaleness({ repo: repoParam }),
           client.analytics.getPROpenClassification({ repo: repoParam, month: contextMonth }),
           client.analytics.getPRGovernanceWaitingState({ repo: repoParam, month: contextMonth }),
+          Promise.all(
+            monthBuckets.map(async (month) => ({
+              month,
+              rows: await client.analytics.getPROpenClassification({ repo: repoParam, month }),
+            })),
+          ),
+          Promise.all(
+            monthBuckets.map(async (month) => ({
+              month,
+              rows: await client.analytics.getPRGovernanceWaitingState({ repo: repoParam, month }),
+            })),
+          ),
         ]);
         setTimeToOutcome(tto);
         setStaleness(stale);
         setProcessCategories(procCat);
         setGovWaitStates(govWait);
+        setProcessCategoriesByMonth(processTimeline);
+        setGovWaitStatesByMonth(participantTimeline);
 
-        const openExport = await client.analytics.getPROpenExport({ repo: repoParam, month: contextMonth });
+        const openExport = await client.analytics.getPROpenExport({ repo: repoParam });
         setOpenPRs(openExport.slice(0, 100));
         setDataUpdatedAt(new Date());
       } catch (err) {
@@ -324,7 +344,61 @@ export default function PRsAnalyticsPage() {
   const nextUpdateAt = useMemo(() => new Date(dataUpdatedAt.getTime() + 24 * 60 * 60 * 1000), [dataUpdatedAt]);
 
   const backlogOption = useMemo(() => {
-    const states = govWaitStates;
+    const months = monthlySeries.map((m) => m.month);
+    if (months.length === 0) return null;
+
+    if (openPRDistributionMode === "process") {
+      const categories = Array.from(
+        new Set(processCategoriesByMonth.flatMap((m) => m.rows.map((r) => r.category))),
+      );
+      return {
+        backgroundColor: "transparent",
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+        legend: {
+          top: 0,
+          textStyle: { color: "var(--muted-foreground)", fontSize: 11 },
+        },
+        grid: { top: 38, left: 38, right: 18, bottom: 46 },
+        xAxis: {
+          type: "category",
+          data: months,
+          axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
+        },
+        yAxis: {
+          type: "value",
+          axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
+          splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } },
+        },
+        dataZoom: [
+          { type: "inside", xAxisIndex: 0, start: 0, end: 100 },
+          {
+            type: "slider",
+            xAxisIndex: 0,
+            bottom: 6,
+            height: 16,
+            borderColor: "rgba(148,163,184,0.22)",
+            backgroundColor: "rgba(148,163,184,0.08)",
+            fillerColor: "rgba(34,211,238,0.22)",
+            handleSize: 9,
+            showDetail: false,
+            start: 0,
+            end: 100,
+          },
+        ],
+        series: categories.map((category) => ({
+          name: category,
+          type: "bar",
+          stack: "open",
+          data: months.map((month) => {
+            const row = processCategoriesByMonth.find((d) => d.month === month);
+            return row?.rows.find((r) => r.category === category)?.count ?? 0;
+          }),
+          itemStyle: { color: PROCESS_COLORS[category] || "#94A3B8" },
+        })),
+      };
+    }
+
+    const states = Array.from(new Set(govWaitStatesByMonth.flatMap((m) => m.rows.map((r) => r.state))));
     return {
       backgroundColor: "transparent",
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
@@ -332,10 +406,10 @@ export default function PRsAnalyticsPage() {
         top: 0,
         textStyle: { color: "var(--muted-foreground)", fontSize: 11 },
       },
-      grid: { top: 38, left: 38, right: 18, bottom: 24 },
+      grid: { top: 38, left: 38, right: 18, bottom: 46 },
       xAxis: {
         type: "category",
-        data: [monthContext],
+        data: months,
         axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
       },
       yAxis: {
@@ -343,15 +417,60 @@ export default function PRsAnalyticsPage() {
         axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
         splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } },
       },
-      series: states.map((s) => ({
-        name: s.label,
+      dataZoom: [
+        { type: "inside", xAxisIndex: 0, start: 0, end: 100 },
+        {
+          type: "slider",
+          xAxisIndex: 0,
+          bottom: 6,
+          height: 16,
+          borderColor: "rgba(148,163,184,0.22)",
+          backgroundColor: "rgba(148,163,184,0.08)",
+          fillerColor: "rgba(34,211,238,0.22)",
+          handleSize: 9,
+          showDetail: false,
+          start: 0,
+          end: 100,
+        },
+      ],
+      series: states.map((state) => ({
+        name: state,
         type: "bar",
         stack: "open",
-        data: [s.count],
-        itemStyle: { color: GOVERNANCE_COLORS[s.state] || "#64748B" },
+        data: months.map((month) => {
+          const row = govWaitStatesByMonth.find((d) => d.month === month);
+          return row?.rows.find((r) => r.state === state)?.count ?? 0;
+        }),
+        itemStyle: { color: GOVERNANCE_COLORS[state] || "#64748B" },
       })),
     };
-  }, [govWaitStates, monthContext]);
+  }, [govWaitStatesByMonth, monthContext, monthlySeries, openPRDistributionMode, processCategoriesByMonth]);
+
+  const labelDistributionOption = useMemo(() => {
+    const topLabels = labelStats.slice(0, 12);
+    return {
+      backgroundColor: "transparent",
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+      grid: { top: 20, left: 36, right: 16, bottom: 70 },
+      xAxis: {
+        type: "category",
+        data: topLabels.map((l) => l.label),
+        axisLabel: { color: "var(--muted-foreground)", fontSize: 11, rotate: 28 },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: { color: "var(--muted-foreground)", fontSize: 11 },
+        splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } },
+      },
+      series: [
+        {
+          type: "bar",
+          data: topLabels.map((l) => l.count),
+          itemStyle: { color: "#60A5FA", borderRadius: [6, 6, 0, 0] },
+        },
+      ],
+    };
+  }, [labelStats]);
 
   const crossTabData = useMemo(() => {
     if (!processCategories.length || !govWaitStates.length) return [];
@@ -539,7 +658,7 @@ export default function PRsAnalyticsPage() {
       </div>
 
       <Section
-        title="Monthly PR Activity"
+        title="Open PR trend by month"
         icon={<BarChart3 className="h-4 w-4" />}
         action={
           <div className="flex items-center gap-2">
@@ -581,39 +700,70 @@ export default function PRsAnalyticsPage() {
         <GraphFooter nextUpdateAt={nextUpdateAt} />
       </Section>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Section title="Open PR Backlog (Process/Participant Context)" icon={<Layers className="h-4 w-4" />}>
-          {govWaitStates.length === 0 ? (
+      <Section title="Label distribution" icon={<BarChart3 className="h-4 w-4" />}>
+        {labelStats.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No label data available.</p>
+        ) : (
+          <div className="h-[320px] w-full">
+            <ReactECharts option={labelDistributionOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+          </div>
+        )}
+        <GraphFooter nextUpdateAt={nextUpdateAt} />
+      </Section>
+
+      <Section title="EIP Open PRs" icon={<Layers className="h-4 w-4" />}>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Open PRs by Process type (Typo, NEW EIP, PR DRAFT) or by Participants status (Waiting on Editor, Awaited). Sum of bars = total open PRs for that month.
+        </p>
+        <div className="mb-3 inline-flex rounded-md border border-border bg-muted/60 p-0.5 text-xs">
+          <button
+            onClick={() => setOpenPRDistributionMode("process")}
+            className={cn("rounded px-2 py-1", openPRDistributionMode === "process" ? "bg-card text-foreground" : "text-muted-foreground")}
+          >
+            By Process
+          </button>
+          <button
+            onClick={() => setOpenPRDistributionMode("participants")}
+            className={cn("rounded px-2 py-1", openPRDistributionMode === "participants" ? "bg-card text-foreground" : "text-muted-foreground")}
+          >
+            By Participants
+          </button>
+        </div>
+          {!backlogOption ? (
             <p className="text-sm text-muted-foreground">No backlog state data available.</p>
           ) : (
             <div className="h-[320px] w-full">
               <ReactECharts option={backlogOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
             </div>
           )}
-          <p className="mt-2 text-[10px] text-muted-foreground">Stack sum = total open PRs for month context (latest snapshot). </p>
-          <GraphFooter nextUpdateAt={nextUpdateAt} />
-        </Section>
+        <p className="mt-2 text-[10px] text-muted-foreground">Each column is one month; stacked segments sum to the total open PR backlog in that month.</p>
+        <GraphFooter nextUpdateAt={nextUpdateAt} />
+      </Section>
 
-        <Section
-          title="Process × Participants"
-          icon={<Users className="h-4 w-4" />}
-          action={
-            <div className="inline-flex rounded-md border border-border bg-muted/60 p-0.5 text-xs">
-              <button
-                onClick={() => setCrossTabMode("process_x_state")}
-                className={cn("rounded px-2 py-1", crossTabMode === "process_x_state" ? "bg-card text-foreground" : "text-muted-foreground")}
-              >
-                X=Process
-              </button>
-              <button
-                onClick={() => setCrossTabMode("state_x_process")}
-                className={cn("rounded px-2 py-1", crossTabMode === "state_x_process" ? "bg-card text-foreground" : "text-muted-foreground")}
-              >
-                X=Participant
-              </button>
-            </div>
-          }
-        >
+      <Section
+        title="Category breakdown"
+        icon={<Users className="h-4 w-4" />}
+        action={
+          <div className="inline-flex rounded-md border border-border bg-muted/60 p-0.5 text-xs">
+            <button
+              onClick={() => setCrossTabMode("process_x_state")}
+              className={cn("rounded px-2 py-1", crossTabMode === "process_x_state" ? "bg-card text-foreground" : "text-muted-foreground")}
+            >
+              X: Process
+            </button>
+            <button
+              onClick={() => setCrossTabMode("state_x_process")}
+              className={cn("rounded px-2 py-1", crossTabMode === "state_x_process" ? "bg-card text-foreground" : "text-muted-foreground")}
+            >
+              X: Participants
+            </button>
+          </div>
+        }
+      >
+        <p className="mb-1 text-xs font-semibold text-foreground">Process × Participants</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          X: Process. Open PRs by Process type and Participants status for {monthContext}. Choose Process or Participants on the X-axis (the other is stacked). Sum of segments = total open PRs in that month context.
+        </p>
           {!processParticipantOption ? (
             <p className="text-sm text-muted-foreground">Not enough data for process × participants breakdown.</p>
           ) : (
@@ -621,20 +771,19 @@ export default function PRsAnalyticsPage() {
               <ReactECharts option={processParticipantOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
             </div>
           )}
-          <p className="mt-2 text-[10px] text-muted-foreground">Estimated breakdown based on current totals (backend cross-tab endpoint pending).</p>
-          <GraphFooter nextUpdateAt={nextUpdateAt} />
-        </Section>
-      </div>
+        <p className="mt-2 text-[10px] text-muted-foreground">Estimated breakdown based on current totals (backend cross-tab endpoint pending).</p>
+        <GraphFooter nextUpdateAt={nextUpdateAt} />
+      </Section>
 
       <details className="rounded-xl border border-border bg-card/50">
         <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-foreground">
-          Diagnostics
+          Supporting metrics
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </summary>
         <div className="border-t border-border/70 px-4 py-4">
           <div className="grid gap-6 lg:grid-cols-3">
             <div>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Governance Distribution</h3>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Participant status mix</h3>
               <div className="space-y-2">
                 {governanceStates.map((g) => {
                   const total = governanceStates.reduce((acc, s) => acc + s.count, 0);
@@ -655,7 +804,7 @@ export default function PRsAnalyticsPage() {
               </div>
             </div>
             <div>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Time To Outcome</h3>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decision speed</h3>
               <div className="space-y-2">
                 {timeToOutcome.map((m) => (
                   <div key={m.metric} className="rounded-lg border border-border/50 bg-muted/40 px-3 py-2 text-xs">
@@ -666,7 +815,7 @@ export default function PRsAnalyticsPage() {
               </div>
             </div>
             <div>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Staleness + Labels</h3>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Labels and staleness</h3>
               <div className="space-y-2">
                 {staleness.map((b) => (
                   <div key={b.bucket} className="rounded-lg border border-border/50 bg-muted/40 px-3 py-2 text-xs text-foreground/90">
