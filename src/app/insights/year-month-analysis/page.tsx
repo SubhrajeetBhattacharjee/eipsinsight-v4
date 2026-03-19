@@ -9,14 +9,12 @@ import { PageHeader, SectionSeparator } from "@/components/header";
 import {
   ArrowLeft,
   Download,
-  Loader2,
   ChevronLeft,
   ChevronRight,
   TrendingUp,
 } from "lucide-react";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
-import { StatusTransitionStackedChart } from "@/components/analytics/StatusTransitionStackedChart";
-import { AnalyticsAnnotation } from "@/components/analytics/AnalyticsAnnotation";
+import { InlineBrandLoader } from "@/components/inline-brand-loader";
 
 const STATUS_COLORS: Record<string, string> = {
   Draft: "#64748b",
@@ -131,8 +129,7 @@ function DrilldownPageContent() {
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [data, setData] = useState<Awaited<ReturnType<typeof client.insights.getMonthlyDrilldown>> | null>(null);
   const [summaryRows, setSummaryRows] = useState<Array<Awaited<ReturnType<typeof client.insights.getMonthlyDrilldown>>["rows"][number]>>([]);
-  const [editors, setEditors] = useState<Array<{ editor: string; totalActions: number; prsTouched: number }>>([]);
-  const [statusTransitionData, setStatusTransitionData] = useState<Array<Record<string, string | number>>>([]);
+  const [editors, setEditors] = useState<Array<{ editor: string; totalActions: number; prsTouched: number; eipsActions: number; ercsActions: number; ripsActions: number }>>([]);
   const [draftFinalHistory, setDraftFinalHistory] = useState<Array<{ month: string; draft: number; final: number }>>([]);
   const [historyUpdatedAt, setHistoryUpdatedAt] = useState<string | null>(null);
   const [statusTrendStatus, setStatusTrendStatus] = useState<string>("Review");
@@ -151,7 +148,7 @@ function DrilldownPageContent() {
     const run = async () => {
       setLoading(true);
       try {
-        const [drilldown, summaryDrilldown, editorRows, statusData, draftFinalHistoryRes, statusCategoryTrendRes] = await Promise.all([
+        const [drilldown, summaryDrilldown, editorRows, draftFinalHistoryRes, statusCategoryTrendRes] = await Promise.all([
           client.insights.getMonthlyDrilldown({
             repo: tableRepoFilter ?? repo,
             month,
@@ -164,9 +161,9 @@ function DrilldownPageContent() {
             pageSize,
           }),
           client.insights.getMonthlyDrilldown({
-            repo: tableRepoFilter ?? repo,
+            repo,
             month,
-            status: tableStatusFilter ? [tableStatusFilter] : [],
+            status: [],
             change: [],
             type: [],
             q: "",
@@ -178,10 +175,6 @@ function DrilldownPageContent() {
             monthYear: month,
             repo: repo === "all" ? undefined : repo,
             limit: 20,
-          }),
-          client.insights.getStatusTransitionData({
-            repo: repo === "all" ? undefined : repo,
-            month,
           }),
           client.insights.getDraftVsFinalHistory({
             repo: repo === "all" ? undefined : repo,
@@ -202,8 +195,10 @@ function DrilldownPageContent() {
           editor: row.actor,
           totalActions: row.totalActions,
           prsTouched: row.prsTouched,
+          eipsActions: row.eipsActions ?? 0,
+          ercsActions: row.ercsActions ?? 0,
+          ripsActions: row.ripsActions ?? 0,
         })));
-        setStatusTransitionData(statusData);
         setDraftFinalHistory(draftFinalHistoryRes.rows);
         setHistoryUpdatedAt(draftFinalHistoryRes.updatedAt);
         setStatusCategoryTrend(statusCategoryTrendRes.rows);
@@ -357,7 +352,29 @@ function DrilldownPageContent() {
   const editorBarOption = useMemo(() => {
     const top = [...editors].slice(0, 10).reverse();
     return {
-      tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        backgroundColor: "rgba(15,23,42,0.96)",
+        borderColor: "rgba(148,163,184,0.28)",
+        textStyle: { color: "#e2e8f0", fontSize: 12 },
+        formatter: (params: Array<{ seriesName: string; value: number; color: string; dataIndex: number }>) => {
+          if (!params?.length) return "";
+          const idx = params[0]?.dataIndex ?? 0;
+          const row = top[idx];
+          const eips = row?.eipsActions ?? 0;
+          const ercs = row?.ercsActions ?? 0;
+          const rips = row?.ripsActions ?? 0;
+          const total = row?.totalActions ?? (eips + ercs + rips);
+
+          const lines = [
+            `<div style="margin-bottom:6px;font-weight:600;color:#f8fafc">${row?.editor ?? ""}</div>`,
+            ...params.map((p) => `<span style="display:inline-block;margin-right:8px;color:${p.color}">●</span>${p.seriesName}: <b>${Number(p.value || 0)}</b>`),
+            `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(148,163,184,0.25)">Total: <b>${total}</b></div>`,
+          ];
+          return lines.join("<br/>");
+        },
+      },
       grid: { left: 120, right: 18, top: 10, bottom: 24 },
       xAxis: {
         type: "value",
@@ -372,12 +389,38 @@ function DrilldownPageContent() {
       },
       series: [
         {
-          name: "Reviews",
+          name: "EIPs",
           type: "bar",
-          data: top.map((e) => e.totalActions),
+          stack: "repos",
+          data: top.map((e) => e.eipsActions),
           barWidth: 14,
-          itemStyle: { color: "#0ea5e9", borderRadius: [0, 6, 6, 0] },
-          label: { show: true, position: "right", color: "#cbd5e1", fontSize: 10 },
+          itemStyle: { color: "#22c55e", borderRadius: [0, 0, 0, 0] },
+        },
+        {
+          name: "ERCs",
+          type: "bar",
+          stack: "repos",
+          data: top.map((e) => e.ercsActions),
+          barWidth: 14,
+          itemStyle: { color: "#60a5fa", borderRadius: [0, 0, 0, 0] },
+        },
+        {
+          name: "RIPs",
+          type: "bar",
+          stack: "repos",
+          data: top.map((e) => e.ripsActions),
+          barWidth: 14,
+          itemStyle: { color: "#f59e0b", borderRadius: [0, 6, 6, 0] },
+          label: {
+            show: true,
+            position: "right",
+            color: "#cbd5e1",
+            fontSize: 10,
+            formatter: (params: { dataIndex: number }) => {
+              const total = top[params.dataIndex]?.totalActions ?? 0;
+              return total > 0 ? String(total) : "";
+            },
+          },
         },
       ],
     };
@@ -612,12 +655,10 @@ function DrilldownPageContent() {
   };
 
   const applySummaryFilter = (status: string, targetRepo: "eips" | "ercs" | "rips") => {
+    tableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     setTableStatusFilter(status);
     setTableRepoFilter(targetRepo);
     setParams({ page: "1" });
-    setTimeout(() => {
-      tableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 60);
   };
 
   const clearTableFilters = () => {
@@ -639,7 +680,7 @@ function DrilldownPageContent() {
         />
         <SectionSeparator className="pb-2" />
 
-        <div className="px-4 sm:px-6 lg:px-8 xl:px-12">
+        <div className="mx-auto w-full px-3 sm:px-4 lg:px-5 xl:px-6">
           <Link href="/insights" className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-3.5 w-3.5" /> Back to Insights
           </Link>
@@ -680,7 +721,7 @@ function DrilldownPageContent() {
 
           {loading ? (
             <div className="flex min-h-[360px] items-center justify-center rounded-xl border border-border bg-card">
-              <Loader2 className="h-7 w-7 animate-spin text-primary" />
+              <InlineBrandLoader size="md" label="Loading monthly insight..." />
             </div>
           ) : (
             <>
@@ -772,20 +813,6 @@ function DrilldownPageContent() {
                   </div>
                 </div>
               </div>
-
-              {statusTransitionData.length > 0 && (
-                <>
-                  <StatusTransitionStackedChart
-                    data={statusTransitionData}
-                    colors={STATUS_COLORS}
-                    title="Proposal Status Distribution"
-                    description={`Current snapshot of proposal counts across all statuses for ${monthLabel(month)}`}
-                  />
-                  <AnalyticsAnnotation>
-                    Status transitions reveal the lifecycle of proposals from Draft to Final, highlighting review bottlenecks and approval flows.
-                  </AnalyticsAnnotation>
-                </>
-              )}
 
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
@@ -965,7 +992,7 @@ function DrilldownPageContent() {
                 </div>
               </div>
 
-              <div ref={tableSectionRef} className="overflow-hidden rounded-xl border border-border bg-card">
+              <div ref={tableSectionRef} className="scroll-mt-24 overflow-hidden rounded-xl border border-border bg-card">
                 {(tableStatusFilter || tableRepoFilter || Object.values(columnSearch).some((v) => v.trim())) && (
                   <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-3 py-2 text-xs">
                     <span className="text-muted-foreground">Table filters:</span>
@@ -1113,7 +1140,7 @@ export default function YearMonthAnalysisPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-background">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <InlineBrandLoader size="md" label="Loading insight page..." />
         </div>
       }
     >

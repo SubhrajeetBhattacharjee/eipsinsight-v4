@@ -5028,6 +5028,9 @@ export const analyticsProcedures = {
         actor: string;
         total_actions: bigint;
         prs_touched: bigint;
+        eips_actions: bigint;
+        ercs_actions: bigint;
+        rips_actions: bigint;
         latest_occurred_at: Date | null;
       }>>(
         `
@@ -5040,6 +5043,7 @@ export const analyticsProcedures = {
             em.canonical AS actor,
             pe.pr_number,
             pe.repository_id,
+            LOWER(SPLIT_PART(COALESCE(r.name, ''), '/', 2)) AS repo_short,
             CASE
               WHEN pe.created_at > COALESCE(pr.closed_at, pr.merged_at, NOW()) + INTERVAL '30 days'
                 THEN COALESCE(pr.closed_at, pr.merged_at, pr.created_at, pe.created_at)
@@ -5047,6 +5051,7 @@ export const analyticsProcedures = {
             END AS occurred_at
           FROM pr_events pe
           JOIN editor_map em ON LOWER(pe.actor) = em.actor_lc
+          LEFT JOIN repositories r ON r.id = pe.repository_id
           LEFT JOIN pull_requests pr ON pr.pr_number = pe.pr_number AND pr.repository_id = pe.repository_id
           WHERE pe.pr_number > 0
         )
@@ -5054,6 +5059,9 @@ export const analyticsProcedures = {
           re.actor AS actor,
           COUNT(*)::bigint AS total_actions,
           COUNT(DISTINCT re.pr_number)::bigint AS prs_touched,
+          COUNT(*) FILTER (WHERE re.repo_short = 'eips')::bigint AS eips_actions,
+          COUNT(*) FILTER (WHERE re.repo_short = 'ercs')::bigint AS ercs_actions,
+          COUNT(*) FILTER (WHERE re.repo_short = 'rips')::bigint AS rips_actions,
           MAX(re.occurred_at) AS latest_occurred_at
         FROM raw_events re
         WHERE re.occurred_at >= $2::date
@@ -5070,6 +5078,9 @@ export const analyticsProcedures = {
         actor: r.actor,
         totalActions: Number(r.total_actions),
         prsTouched: Number(r.prs_touched),
+        eipsActions: Number(r.eips_actions),
+        ercsActions: Number(r.ercs_actions),
+        ripsActions: Number(r.rips_actions),
       }));
       const updatedAt = results.reduce<Date | null>((latest, row) => {
         if (!row.latest_occurred_at) return latest;
