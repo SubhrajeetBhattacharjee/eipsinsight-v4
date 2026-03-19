@@ -1,4 +1,5 @@
 export const CANONICAL_EIP_EDITORS = [
+  "g11tech",
   "axic",
   "Pandapip1",
   "gcolvin",
