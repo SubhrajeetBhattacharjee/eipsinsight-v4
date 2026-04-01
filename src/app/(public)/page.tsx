@@ -21,10 +21,12 @@ import {
   Download,
   Eye,
   FileText,
+  Filter,
   GitBranch,
   GitPullRequest,
   Layers,
   Network,
+  Package,
   Pause,
   Trophy,
   XCircle,
@@ -41,8 +43,9 @@ import SocialCommunityUpdates from './_components/social-community-updates';
 import { useSession } from '@/hooks/useSession';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
+import { ASSOCIATE_EIP_EDITORS } from '@/data/eip-contributor-roles';
 
-type Dimension = 'status' | 'category' | 'repo';
+type Dimension = 'status' | 'category' | 'repo' | 'stages';
 type SortBy = 'github' | 'eip' | 'title' | 'author' | 'type' | 'category' | 'status' | 'updated_at';
 type SortDir = 'asc' | 'desc';
 
@@ -113,6 +116,54 @@ const statusIconMap: Record<string, React.ComponentType<{ className?: string }>>
   Stagnant: Pause,
   Withdrawn: XCircle,
   Unknown: Layers,
+};
+
+const STAGE_COLORS: Record<string, string> = {
+  included: 'bg-emerald-500',
+  scheduled: 'bg-cyan-500',
+  considered: 'bg-amber-500',
+  proposed: 'bg-blue-500',
+  declined: 'bg-red-500',
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  included: 'Included',
+  scheduled: 'SFI',
+  considered: 'CFI',
+  proposed: 'PFI',
+  declined: 'DFI',
+};
+
+const STAGE_FULL_LABELS: Record<string, string> = {
+  included: 'Included',
+  scheduled: 'Scheduled for Inclusion',
+  considered: 'Considered for Inclusion',
+  proposed: 'Proposed for Inclusion',
+  declined: 'Declined for Inclusion',
+};
+
+const stageIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  included: CheckCircle2,
+  scheduled: Zap,
+  considered: Eye,
+  proposed: FileText,
+  declined: XCircle,
+};
+
+const STAGE_BADGE_COLORS: Record<string, string> = {
+  included: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+  scheduled: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',
+  considered: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30',
+  proposed: 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30',
+  declined: 'bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30',
+};
+
+const BUCKET_THEME_BY_STAGE: Record<string, BucketTheme> = {
+  included: { border: 'border-emerald-500/30', surface: 'bg-emerald-500/[0.07]', title: 'text-foreground', iconWrap: 'bg-emerald-500/15', icon: 'text-emerald-700 dark:text-emerald-300' },
+  scheduled: { border: 'border-cyan-500/30', surface: 'bg-cyan-500/[0.07]', title: 'text-foreground', iconWrap: 'bg-cyan-500/15', icon: 'text-cyan-700 dark:text-cyan-300' },
+  considered: { border: 'border-amber-500/30', surface: 'bg-amber-500/[0.07]', title: 'text-foreground', iconWrap: 'bg-amber-500/15', icon: 'text-amber-700 dark:text-amber-300' },
+  proposed: { border: 'border-blue-500/30', surface: 'bg-blue-500/[0.07]', title: 'text-foreground', iconWrap: 'bg-blue-500/15', icon: 'text-blue-700 dark:text-blue-300' },
+  declined: { border: 'border-red-500/30', surface: 'bg-red-500/[0.07]', title: 'text-foreground', iconWrap: 'bg-red-500/15', icon: 'text-red-700 dark:text-red-300' },
 };
 
 const categoryIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -299,6 +350,7 @@ function formatEditorAction(eventType: string) {
 function getBucketTheme(dimension: Dimension, bucket: string): BucketTheme {
   if (dimension === 'status') return BUCKET_THEME_BY_STATUS[bucket] || BUCKET_THEME_BY_STATUS.Unknown || DEFAULT_BUCKET_THEME;
   if (dimension === 'category') return BUCKET_THEME_BY_CATEGORY[bucket] || DEFAULT_BUCKET_THEME;
+  if (dimension === 'stages') return BUCKET_THEME_BY_STAGE[bucket] || DEFAULT_BUCKET_THEME;
   if (dimension === 'repo') {
     if (bucket === 'RIPs') return { border: 'border-violet-500/28', surface: 'bg-violet-500/[0.06]', title: 'text-foreground', iconWrap: 'bg-violet-500/14', icon: 'text-violet-700 dark:text-violet-300' };
     if (bucket === 'ERCs') return { border: 'border-emerald-500/28', surface: 'bg-emerald-500/[0.06]', title: 'text-foreground', iconWrap: 'bg-emerald-500/14', icon: 'text-emerald-700 dark:text-emerald-300' };
@@ -330,6 +382,12 @@ export default function EIPsHomePage() {
   const [debouncedColumnSearch, setDebouncedColumnSearch] = useState<ColumnSearch>(columnSearch);
   const [autoGithubFilter, setAutoGithubFilter] = useState(false);
   const [eipDisplayValue, setEipDisplayValue] = useState('');
+  const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
+  const [statusSubDist, setStatusSubDist] = useState<Array<{ status: string; count: number }>>([]);
+  const [statusSubDistLoading, setStatusSubDistLoading] = useState(false);
+  const [stagesDistribution, setStagesDistribution] = useState<Array<{ bucket: string; count: number }>>([]);
+  const [stagesDistributionLoading, setStagesDistributionLoading] = useState(false);
+  const [showSubFilter, setShowSubFilter] = useState(true);
 
   const [distribution, setDistribution] = useState<Array<{ bucket: string; count: number }>>([]);
   const [faqCategoryBreakdown, setFaqCategoryBreakdown] = useState<Array<{ category: string; count: number }>>([]);
@@ -426,49 +484,130 @@ export default function EIPsHomePage() {
     })();
   }, []);
 
+  // Clear sub-filter when dimension or bucket changes
+  useEffect(() => {
+    setActiveStatusFilter(null);
+    setStatusSubDist([]);
+    setShowSubFilter(true);
+  }, [dimension, activeBucket]);
+
+  // Apply activeStatusFilter to columnSearch.status
+  useEffect(() => {
+    if (activeStatusFilter) {
+      setColumnSearch((prev) => ({ ...prev, status: activeStatusFilter }));
+    } else {
+      setColumnSearch((prev) => ({ ...prev, status: '' }));
+    }
+  }, [activeStatusFilter]);
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setDistributionLoading(true);
-      try {
-        const distRes = await client.standards.getUnifiedDistribution({ dimension });
-        if (!cancelled) setDistribution(distRes);
-      } catch (err) {
-        console.error('Failed to load homepage distribution:', err);
-      } finally {
-        if (!cancelled) setDistributionLoading(false);
-      }
-    })();
+    if (dimension === 'stages') {
+      // Fetch stages distribution
+      (async () => {
+        setStagesDistributionLoading(true);
+        try {
+          const res = await client.standards.getStagesDistribution({});
+          if (!cancelled) setStagesDistribution(res);
+        } catch (err) {
+          console.error('Failed to load stages distribution:', err);
+        } finally {
+          if (!cancelled) setStagesDistributionLoading(false);
+        }
+      })();
+    } else {
+      // Fetch regular distribution
+      (async () => {
+        setDistributionLoading(true);
+        try {
+          const distRes = await client.standards.getUnifiedDistribution({ dimension: dimension as 'status' | 'category' | 'repo' });
+          if (!cancelled) setDistribution(distRes);
+        } catch (err) {
+          console.error('Failed to load homepage distribution:', err);
+        } finally {
+          if (!cancelled) setDistributionLoading(false);
+        }
+      })();
+    }
     return () => {
       cancelled = true;
     };
   }, [dimension]);
+
+  // Fetch status sub-distribution when category/repo bucket is selected
+  useEffect(() => {
+    if ((dimension !== 'category' && dimension !== 'repo') || !activeBucket) {
+      setStatusSubDist([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setStatusSubDistLoading(true);
+      try {
+        const res = await client.standards.getStatusSubDistribution({
+          dimension: dimension as 'category' | 'repo',
+          bucket: activeBucket,
+        });
+        if (!cancelled) setStatusSubDist(res);
+      } catch (err) {
+        console.error('Failed to load status sub-distribution:', err);
+      } finally {
+        if (!cancelled) setStatusSubDistLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dimension, activeBucket]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setTableLoading(true);
       try {
-        const tableRes = await client.standards.getUnifiedProposals({
-          page,
-          pageSize: 10,
-          sortBy,
-          sortDir,
-          dimension,
-          bucket: activeBucket ?? undefined,
-          columnSearch: {
-            github: debouncedColumnSearch.github || undefined,
-            eip: debouncedColumnSearch.eip || undefined,
-            title: debouncedColumnSearch.title || undefined,
-            author: debouncedColumnSearch.author || undefined,
-            type: debouncedColumnSearch.type || undefined,
-            status: debouncedColumnSearch.status || undefined,
-            category: debouncedColumnSearch.category || undefined,
-            updatedAt: debouncedColumnSearch.updatedAt || undefined,
-          },
-        });
-        if (!cancelled) {
-          setTableData({ total: tableRes.total, totalPages: tableRes.totalPages, rows: tableRes.rows });
+        if (dimension === 'stages') {
+          // Use stages-specific endpoint
+          const tableRes = await client.standards.getStageProposals({
+            stage: activeBucket ?? undefined,
+            page,
+            pageSize: 10,
+            sortBy: sortBy === 'github' ? 'eip' : sortBy,
+            sortDir,
+            columnSearch: {
+              eip: debouncedColumnSearch.eip || undefined,
+              github: debouncedColumnSearch.github || undefined,
+              title: debouncedColumnSearch.title || undefined,
+              author: debouncedColumnSearch.author || undefined,
+              type: debouncedColumnSearch.type || undefined,
+              status: debouncedColumnSearch.status || undefined,
+              category: debouncedColumnSearch.category || undefined,
+              updatedAt: debouncedColumnSearch.updatedAt || undefined,
+            },
+          });
+          if (!cancelled) {
+            setTableData({ total: tableRes.total, totalPages: tableRes.totalPages, rows: tableRes.rows });
+          }
+        } else {
+          // Use regular unified endpoint
+          const tableRes = await client.standards.getUnifiedProposals({
+            page,
+            pageSize: 10,
+            sortBy,
+            sortDir,
+            dimension: dimension as 'status' | 'category' | 'repo',
+            bucket: activeBucket ?? undefined,
+            columnSearch: {
+              github: debouncedColumnSearch.github || undefined,
+              eip: debouncedColumnSearch.eip || undefined,
+              title: debouncedColumnSearch.title || undefined,
+              author: debouncedColumnSearch.author || undefined,
+              type: debouncedColumnSearch.type || undefined,
+              status: debouncedColumnSearch.status || undefined,
+              category: debouncedColumnSearch.category || undefined,
+              updatedAt: debouncedColumnSearch.updatedAt || undefined,
+            },
+          });
+          if (!cancelled) {
+            setTableData({ total: tableRes.total, totalPages: tableRes.totalPages, rows: tableRes.rows });
+          }
         }
       } catch (err) {
         console.error('Failed to load homepage proposals table:', err);
@@ -495,7 +634,9 @@ export default function EIPsHomePage() {
         if (!cancelled) {
           setFebDelta(deltaRes.items);
           setMonthlyDeltaUpdatedAt(deltaRes.updatedAt);
-          setFebEditors(editorRes.items);
+          setFebEditors(editorRes.items.filter(
+            (e: { actor: string }) => !ASSOCIATE_EIP_EDITORS.includes(e.actor.toLowerCase() as typeof ASSOCIATE_EIP_EDITORS[number])
+          ));
           setMonthlyLeaderboardUpdatedAt(editorRes.updatedAt);
           setRecentChanges(recentRes as typeof recentChanges);
           setRecentEditorActivities(editorActivityRes);
@@ -650,13 +791,15 @@ export default function EIPsHomePage() {
       updatedAt: '',
     });
     setAutoGithubFilter(false);
+    setActiveStatusFilter(null);
   };
 
   const downloadDetailedCSV = async () => {
     try {
       setDownloading(true);
+      const csvDimension = dimension === 'stages' ? 'status' : dimension;
       const res = await client.standards.exportUnifiedDetailedCSV({
-        dimension,
+        dimension: csvDimension,
         bucket: activeBucket ?? undefined,
         search: undefined,
         columnSearch: {
@@ -795,7 +938,7 @@ export default function EIPsHomePage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start">
             <h2 className={sectionTitleClass}>
-              Browse by Status, Category, and Repository
+            Browse by Status, Category, Repository & Stages
             </h2>
           </div>
           <div className="w-full overflow-x-auto pb-1 sm:w-auto">
@@ -809,6 +952,7 @@ export default function EIPsHomePage() {
                   ['status', 'Status', Activity] as const,
                   ['category', 'Category', Layers] as const,
                   ['repo', 'Repo', GitBranch] as const,
+                  ['stages', 'Stages', Package] as const,
                 ] as const
               ).map(([key, label, Icon]) => {
                 const active = dimension === key;
@@ -843,8 +987,8 @@ export default function EIPsHomePage() {
       </div>
 
       <div className="mb-3 grid grid-cols-1 gap-2 min-[520px]:grid-cols-2 lg:grid-cols-4">
-        {showDistributionSkeleton ? (
-          Array.from({ length: 8 }).map((_, i) => (
+        {(dimension === 'stages' ? stagesDistributionLoading : showDistributionSkeleton) ? (
+          Array.from({ length: 6 }).map((_, i) => (
             <div
               key={`dist-skeleton-${i}`}
               className="rounded-xl border border-border bg-card/60 p-3"
@@ -883,19 +1027,24 @@ export default function EIPsHomePage() {
             <Layers className="h-3 w-3" />
           </div>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-          <p className="mt-0.5 text-lg font-semibold leading-none text-foreground sm:text-xl">{totalCount.toLocaleString()}</p>
+          <p className="mt-0.5 text-lg font-semibold leading-none text-foreground sm:text-xl">{dimension === 'stages' ? stagesDistribution.reduce((s, r) => s + r.count, 0).toLocaleString() : totalCount.toLocaleString()}</p>
           </div>
         </button>
 
-        {distribution.map((row) => {
-          const pct = totalCount > 0 ? Math.round((row.count / totalCount) * 100) : 0;
+        {(dimension === 'stages' ? stagesDistribution : distribution).map((row) => {
+          const isStages = dimension === 'stages';
+          const totalForDimension = isStages ? stagesDistribution.reduce((s, r) => s + r.count, 0) : totalCount;
+          const maxForDimension = isStages ? Math.max(1, ...stagesDistribution.map((r) => r.count)) : maxCardCount;
+          const pct = totalForDimension > 0 ? Math.round((row.count / totalForDimension) * 100) : 0;
           const selected = activeBucket === row.bucket;
-          const barColor = selected ? (STATUS_COLORS[row.bucket] || 'bg-cyan-500') : 'bg-muted-foreground/40';
+          const barColor = selected ? (isStages ? (STAGE_COLORS[row.bucket] || 'bg-cyan-500') : (STATUS_COLORS[row.bucket] || 'bg-cyan-500')) : 'bg-muted-foreground/40';
           const theme = getBucketTheme(dimension, row.bucket);
+          const StageIcon = stageIconMap[row.bucket] ?? Layers;
           const StatusIcon = statusIconMap[row.bucket] ?? Layers;
           const CategoryIcon = categoryIconMap[row.bucket] ?? Layers;
           const RepoIcon = repoIconMap[row.bucket] ?? Layers;
-          const Icon = dimension === 'status' ? StatusIcon : dimension === 'category' ? CategoryIcon : RepoIcon;
+          const Icon = isStages ? StageIcon : dimension === 'status' ? StatusIcon : dimension === 'category' ? CategoryIcon : RepoIcon;
+          const displayLabel = isStages ? (STAGE_FULL_LABELS[row.bucket] || row.bucket) : row.bucket;
 
           return (
             <button
@@ -930,13 +1079,13 @@ export default function EIPsHomePage() {
                     selected ? theme.title : 'text-muted-foreground',
                   )}
                 >
-                  {row.bucket}
+                  {displayLabel}
                 </p>
                 <span className="text-[10px] text-muted-foreground">{pct}%</span>
               </div>
               <p className="text-xl font-semibold leading-none tracking-tight text-foreground sm:text-2xl">{row.count.toLocaleString()}</p>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted/80">
-                <div className={`h-full ${barColor}`} style={{ width: `${Math.max(8, (row.count / maxCardCount) * 100)}%` }} />
+                <div className={`h-full ${barColor}`} style={{ width: `${Math.max(8, (row.count / maxForDimension) * 100)}%` }} />
               </div>
               </div>
             </button>
@@ -945,6 +1094,90 @@ export default function EIPsHomePage() {
           </>
         )}
       </div>
+
+      {/* Stages context note */}
+      {dimension === 'stages' && !stagesDistributionLoading && stagesDistribution.length > 0 && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground">
+          <Package className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span>
+            Showing EIP inclusion stages across all active network upgrades including{' '}
+            <Link href="/upgrade/glamsterdam" className="font-semibold text-primary hover:underline">
+              Glamsterdam
+            </Link>
+            .{' '}
+            <Link href="/upgrade" className="text-primary hover:underline">
+              View all upgrades →
+            </Link>
+          </span>
+        </div>
+      )}
+
+      {/* Sub-filter: status chips when category/repo bucket is selected */}
+      <AnimatePresence>
+        {(dimension === 'category' || dimension === 'repo') && activeBucket && statusSubDist.length > 0 && showSubFilter && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mb-3 overflow-hidden"
+          >
+            <div className="rounded-xl border border-border bg-card/60 px-3.5 py-2.5">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Filter className="h-3.5 w-3.5" />
+                  <span>Filter <span className="font-semibold text-foreground">{activeBucket}</span> by Status</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSubFilter(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  aria-label="Hide sub-filter"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveStatusFilter(null)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    activeStatusFilter === null
+                      ? 'border-primary/40 bg-primary/10 text-primary'
+                      : 'border-border bg-muted/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                  )}
+                >
+                  All ({statusSubDist.reduce((s, r) => s + r.count, 0).toLocaleString()})
+                </button>
+                {statusSubDist.map((row) => {
+                  const active = activeStatusFilter === row.status;
+                  const dotColor = STATUS_COLORS[row.status] || 'bg-muted-foreground';
+                  return (
+                    <button
+                      key={row.status}
+                      type="button"
+                      onClick={() => setActiveStatusFilter(active ? null : row.status)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                        active
+                          ? (BADGE_COLORS[row.status] || 'border-primary/40 bg-primary/10 text-primary')
+                          : 'border-border bg-muted/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                      )}
+                    >
+                      <span className={cn('h-1.5 w-1.5 rounded-full', dotColor)} />
+                      {row.status} ({row.count.toLocaleString()})
+                    </button>
+                  );
+                })}
+              </div>
+              {statusSubDistLoading && (
+                <div className="mt-1.5 text-[10px] text-muted-foreground">Loading…</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="mb-6 overflow-hidden rounded-xl border border-border bg-card/60">
         <div className="flex flex-col items-start justify-between gap-2 border-b border-border/70 bg-muted/40 px-4 py-3 text-xs sm:flex-row sm:items-center">
@@ -1192,6 +1425,16 @@ export default function EIPsHomePage() {
             <div className="h-full w-full">
               {showInsightSkeleton ? (
                 <div className="h-full w-full animate-pulse rounded-xl bg-muted" />
+              ) : febDelta.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+                  <Activity className="h-10 w-10 text-muted-foreground/40" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">No status changes yet</p>
+                    <p className="mt-1 text-xs text-muted-foreground/70">
+                      Status transitions for {monthLabel(currentMonthYear)} will appear here as they occur.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <ReactECharts
                   option={febInsightDonutOption}
@@ -1200,7 +1443,7 @@ export default function EIPsHomePage() {
                 />
               )}
             </div>
-            {!showInsightSkeleton && (
+            {!showInsightSkeleton && febDelta.length > 0 && (
               <div className="pointer-events-none absolute bottom-3 right-3 rounded-md border border-border/70 bg-background/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80 backdrop-blur-sm">
                 EIPsInsight.com
               </div>
@@ -1260,6 +1503,17 @@ export default function EIPsHomePage() {
                     <div className="h-1.5 animate-pulse rounded-full bg-muted" />
                   </div>
                 ))
+              : febEditors.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+                  <Trophy className="h-10 w-10 text-muted-foreground/40" />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">No editor activity yet</p>
+                    <p className="mt-1 text-xs text-muted-foreground/70">
+                      Editor actions for {monthLabel(currentMonthYear)} will appear here as PRs are reviewed.
+                    </p>
+                  </div>
+                </div>
+              )
               : febEditors.map((row, idx) => (
                   <div key={row.actor} className={`rounded-lg p-2.5 ring-1 ${idx === 0 ? 'bg-primary/10 ring-primary/30' : 'bg-muted/40 ring-border'}`}>
                     <div className="mb-2 flex items-center justify-between gap-2">
