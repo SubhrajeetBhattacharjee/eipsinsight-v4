@@ -43,7 +43,7 @@ import SocialCommunityUpdates from './_components/social-community-updates';
 import { useSession } from '@/hooks/useSession';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
-import { ASSOCIATE_EIP_EDITORS } from '@/data/eip-contributor-roles';
+import { ASSOCIATE_EIP_EDITORS, CANONICAL_EIP_EDITORS } from '@/data/eip-contributor-roles';
 
 type Dimension = 'status' | 'category' | 'repo' | 'stages';
 type SortBy = 'github' | 'eip' | 'title' | 'author' | 'type' | 'category' | 'status' | 'updated_at';
@@ -58,6 +58,13 @@ type ColumnSearch = {
   status: string;
   category: string;
   updatedAt: string;
+  upgrade: string;
+};
+
+type HomepageEditorRow = {
+  actor: string;
+  totalActions: number;
+  prsTouched: number;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -378,6 +385,7 @@ export default function EIPsHomePage() {
     status: '',
     category: '',
     updatedAt: '',
+    upgrade: '',
   });
   const [debouncedColumnSearch, setDebouncedColumnSearch] = useState<ColumnSearch>(columnSearch);
   const [autoGithubFilter, setAutoGithubFilter] = useState(false);
@@ -385,6 +393,11 @@ export default function EIPsHomePage() {
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
   const [statusSubDist, setStatusSubDist] = useState<Array<{ status: string; count: number }>>([]);
   const [statusSubDistLoading, setStatusSubDistLoading] = useState(false);
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState<string | null>(null);
+  const [categorySubDist, setCategorySubDist] = useState<Array<{ category: string; count: number }>>([]);
+  const [categorySubDistLoading, setCategorySubDistLoading] = useState(false);
+  const [stageStatusSubDist, setStageStatusSubDist] = useState<Array<{ status: string; count: number }>>([]);
+  const [stageStatusSubDistLoading, setStageStatusSubDistLoading] = useState(false);
   const [stagesDistribution, setStagesDistribution] = useState<Array<{ bucket: string; count: number }>>([]);
   const [stagesDistributionLoading, setStagesDistributionLoading] = useState(false);
   const [showSubFilter, setShowSubFilter] = useState(true);
@@ -408,7 +421,7 @@ export default function EIPsHomePage() {
     }>;
   } | null>(null);
   const [febDelta, setFebDelta] = useState<Array<{ status: string; count: number }>>([]);
-  const [febEditors, setFebEditors] = useState<Array<{ actor: string; totalActions: number; prsTouched: number }>>([]);
+  const [febEditors, setFebEditors] = useState<HomepageEditorRow[]>([]);
   const [recentChanges, setRecentChanges] = useState<Array<{
     eip: string;
     eip_type: string;
@@ -437,9 +450,24 @@ export default function EIPsHomePage() {
   const [downloadingLeaderboard, setDownloadingLeaderboard] = useState(false);
   const [monthlyDeltaUpdatedAt, setMonthlyDeltaUpdatedAt] = useState<string | null>(null);
   const [monthlyLeaderboardUpdatedAt, setMonthlyLeaderboardUpdatedAt] = useState<string | null>(null);
-  const currentMonthYear = useMemo(() => {
+  const defaultMonthYear = useMemo(() => {
     const now = new Date();
     return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }, []);
+  const [currentMonthYear, setCurrentMonthYear] = useState(defaultMonthYear);
+  const monthYearOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [];
+    const cursor = new Date();
+    cursor.setUTCDate(1);
+    cursor.setUTCHours(0, 0, 0, 0);
+    for (let i = 0; i < 18; i += 1) {
+      const y = cursor.getUTCFullYear();
+      const m = cursor.getUTCMonth() + 1;
+      const value = `${y}-${String(m).padStart(2, '0')}`;
+      options.push({ value, label: monthLabel(value) });
+      cursor.setUTCMonth(cursor.getUTCMonth() - 1);
+    }
+    return options;
   }, []);
 
   useEffect(() => {
@@ -484,21 +512,33 @@ export default function EIPsHomePage() {
     })();
   }, []);
 
-  // Clear sub-filter when dimension or bucket changes
+  // Clear sub-filters when dimension or bucket changes
   useEffect(() => {
     setActiveStatusFilter(null);
     setStatusSubDist([]);
+    setActiveCategoryFilter(null);
+    setCategorySubDist([]);
+    setStageStatusSubDist([]);
     setShowSubFilter(true);
   }, [dimension, activeBucket]);
 
-  // Apply activeStatusFilter to columnSearch.status
+  // Apply activeStatusFilter to columnSearch.status (for category/repo/stages tabs)
   useEffect(() => {
     if (activeStatusFilter) {
       setColumnSearch((prev) => ({ ...prev, status: activeStatusFilter }));
-    } else {
+    } else if (dimension === 'category' || dimension === 'repo' || dimension === 'stages') {
       setColumnSearch((prev) => ({ ...prev, status: '' }));
     }
-  }, [activeStatusFilter]);
+  }, [activeStatusFilter, dimension]);
+
+  // Apply activeCategoryFilter to columnSearch.category (for status tab)
+  useEffect(() => {
+    if (activeCategoryFilter) {
+      setColumnSearch((prev) => ({ ...prev, category: activeCategoryFilter }));
+    } else if (dimension === 'status') {
+      setColumnSearch((prev) => ({ ...prev, category: '' }));
+    }
+  }, [activeCategoryFilter, dimension]);
 
   useEffect(() => {
     let cancelled = false;
@@ -558,6 +598,52 @@ export default function EIPsHomePage() {
     return () => { cancelled = true; };
   }, [dimension, activeBucket]);
 
+  // Fetch category sub-distribution when status bucket is selected
+  useEffect(() => {
+    if (dimension !== 'status' || !activeBucket) {
+      setCategorySubDist([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setCategorySubDistLoading(true);
+      try {
+        const res = await client.standards.getCategorySubDistribution({
+          status: activeBucket,
+        });
+        if (!cancelled) setCategorySubDist(res);
+      } catch (err) {
+        console.error('Failed to load category sub-distribution:', err);
+      } finally {
+        if (!cancelled) setCategorySubDistLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dimension, activeBucket]);
+
+  // Fetch status sub-distribution when stages bucket is selected
+  useEffect(() => {
+    if (dimension !== 'stages' || !activeBucket) {
+      setStageStatusSubDist([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setStageStatusSubDistLoading(true);
+      try {
+        const res = await client.standards.getStageStatusSubDistribution({
+          stage: activeBucket,
+        });
+        if (!cancelled) setStageStatusSubDist(res);
+      } catch (err) {
+        console.error('Failed to load stage status sub-distribution:', err);
+      } finally {
+        if (!cancelled) setStageStatusSubDistLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dimension, activeBucket]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -580,6 +666,7 @@ export default function EIPsHomePage() {
               status: debouncedColumnSearch.status || undefined,
               category: debouncedColumnSearch.category || undefined,
               updatedAt: debouncedColumnSearch.updatedAt || undefined,
+              upgrade: debouncedColumnSearch.upgrade || undefined,
             },
           });
           if (!cancelled) {
@@ -627,19 +714,39 @@ export default function EIPsHomePage() {
       try {
         const [deltaRes, editorRes, recentRes, editorActivityRes] = await Promise.all([
           client.standards.getMonthlyDelta({ monthYear: currentMonthYear }),
-          client.analytics.getMonthlyEditorLeaderboard({ monthYear: currentMonthYear, limit: 10 }),
+          client.analytics.getMonthlyEditorLeaderboard({ monthYear: currentMonthYear, limit: 50 }),
           client.analytics.getRecentChanges({ limit: 8 }),
           client.analytics.getRecentEditorActivity({ limit: 5, onlyOpenPRs: true }),
         ]);
         if (!cancelled) {
           setFebDelta(deltaRes.items);
           setMonthlyDeltaUpdatedAt(deltaRes.updatedAt);
-          setFebEditors(editorRes.items.filter(
-            (e: { actor: string }) => !ASSOCIATE_EIP_EDITORS.includes(e.actor.toLowerCase() as typeof ASSOCIATE_EIP_EDITORS[number])
-          ));
+          const canonicalEditors = CANONICAL_EIP_EDITORS.filter(
+            (editor) => !ASSOCIATE_EIP_EDITORS.includes(editor.toLowerCase() as typeof ASSOCIATE_EIP_EDITORS[number])
+          );
+          const byActor = new Map<string, HomepageEditorRow>();
+          editorRes.items.forEach((item) => {
+            const key = item.actor.toLowerCase();
+            if (ASSOCIATE_EIP_EDITORS.includes(key as typeof ASSOCIATE_EIP_EDITORS[number])) return;
+            byActor.set(key, {
+              actor: item.actor,
+              totalActions: item.totalActions,
+              prsTouched: item.prsTouched,
+            });
+          });
+          const merged = canonicalEditors.map((editor) => byActor.get(editor.toLowerCase()) ?? {
+            actor: editor,
+            totalActions: 0,
+            prsTouched: 0,
+          });
+          merged.sort((a, b) => b.totalActions - a.totalActions || b.prsTouched - a.prsTouched || a.actor.localeCompare(b.actor));
+          setFebEditors(merged);
           setMonthlyLeaderboardUpdatedAt(editorRes.updatedAt);
           setRecentChanges(recentRes as typeof recentChanges);
-          setRecentEditorActivities(editorActivityRes);
+          const canonicalEditorSet = new Set(CANONICAL_EIP_EDITORS.map((editor) => editor.toLowerCase()));
+          setRecentEditorActivities(
+            editorActivityRes.filter((item) => canonicalEditorSet.has(item.editor.toLowerCase()))
+          );
         }
       } catch (err) {
         console.error('Failed to load homepage widgets:', err);
@@ -670,6 +777,14 @@ export default function EIPsHomePage() {
     })),
     [febDelta]
   );
+  const monthlyEditorRows = useMemo(
+    () => febEditors.slice(0, 10),
+    [febEditors]
+  );
+  const monthlyInsightTotal = useMemo(
+    () => febInsightPieData.reduce((sum, item) => sum + item.value, 0),
+    [febInsightPieData]
+  );
   const febInsightDonutOption = useMemo(() => ({
     tooltip: {
       trigger: 'item',
@@ -679,34 +794,63 @@ export default function EIPsHomePage() {
       borderColor: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.35)',
       textStyle: { color: isDark ? '#e2e8f0' : '#0f172a', fontSize: 12 },
     },
-    legend: { show: false },
+    legend: {
+      show: true,
+      orient: 'vertical',
+      right: 8,
+      top: 'middle',
+      itemWidth: 10,
+      itemHeight: 10,
+      icon: 'circle',
+      textStyle: {
+        color: isDark ? '#cbd5e1' : '#475569',
+        fontSize: 11,
+      },
+      formatter: (name: string) => {
+        const item = febInsightPieData.find((d) => d.name === name);
+        return `${name} (${item?.value ?? 0})`;
+      },
+    },
+    graphic: [
+      {
+        type: 'text',
+        left: '36%',
+        top: '45%',
+        style: {
+          text: monthlyInsightTotal.toLocaleString(),
+          fill: isDark ? '#f8fafc' : '#0f172a',
+          fontSize: 22,
+          fontWeight: 700,
+          textAlign: 'center',
+        },
+      },
+      {
+        type: 'text',
+        left: '36%',
+        top: '53%',
+        style: {
+          text: 'Total',
+          fill: isDark ? '#94a3b8' : '#64748b',
+          fontSize: 11,
+          fontWeight: 600,
+          textAlign: 'center',
+        },
+      },
+    ],
     series: [
       {
         type: 'pie',
-        radius: ['48%', '74%'],
-        center: ['50%', '50%'],
-        avoidLabelOverlap: true,
+        radius: ['52%', '80%'],
+        center: ['36%', '50%'],
+        avoidLabelOverlap: false,
         minAngle: 3,
         itemStyle: {
           borderRadius: 4,
           borderWidth: 1,
           borderColor: isDark ? 'rgba(15,23,42,0.12)' : 'rgba(148,163,184,0.22)',
         },
-        label: {
-          show: true,
-          color: isDark ? '#cbd5e1' : '#475569',
-          fontSize: 12,
-          fontWeight: 600,
-          formatter: '{b}: {c}',
-        },
-        labelLine: {
-          show: true,
-          lineStyle: {
-            color: isDark ? 'rgba(148,163,184,0.55)' : 'rgba(100,116,139,0.35)',
-          },
-          length: 8,
-          length2: 8,
-        },
+        label: { show: false },
+        labelLine: { show: false },
         data: febInsightPieData.map((d) => ({
           name: d.name,
           value: d.value,
@@ -714,11 +858,11 @@ export default function EIPsHomePage() {
         })),
       },
     ],
-  }), [febInsightPieData, isDark]);
+  }), [febInsightPieData, isDark, monthlyInsightTotal]);
 
   const maxEditor = useMemo(
-    () => Math.max(1, ...febEditors.map((e) => e.totalActions)),
-    [febEditors]
+    () => Math.max(1, ...monthlyEditorRows.map((e) => e.totalActions)),
+    [monthlyEditorRows]
   );
   const showDistributionSkeleton = distributionLoading && distribution.length === 0;
   const showTableSkeleton = tableLoading && !tableData;
@@ -789,9 +933,11 @@ export default function EIPsHomePage() {
       status: '',
       category: '',
       updatedAt: '',
+      upgrade: '',
     });
     setAutoGithubFilter(false);
     setActiveStatusFilter(null);
+    setActiveCategoryFilter(null);
   };
 
   const downloadDetailedCSV = async () => {
@@ -1104,6 +1250,10 @@ export default function EIPsHomePage() {
             <Link href="/upgrade/glamsterdam" className="font-semibold text-primary hover:underline">
               Glamsterdam
             </Link>
+            {' & '}
+            <Link href="/upgrade/hegota" className="font-semibold text-primary hover:underline">
+              Hegota
+            </Link>
             .{' '}
             <Link href="/upgrade" className="text-primary hover:underline">
               View all upgrades →
@@ -1179,6 +1329,143 @@ export default function EIPsHomePage() {
         )}
       </AnimatePresence>
 
+      {/* Sub-filter: category chips when status bucket is selected */}
+      <AnimatePresence>
+        {dimension === 'status' && activeBucket && categorySubDist.length > 0 && showSubFilter && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mb-3 overflow-hidden"
+          >
+            <div className="rounded-xl border border-border bg-card/60 px-3.5 py-2.5">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Filter className="h-3.5 w-3.5" />
+                  <span>Filter <span className="font-semibold text-foreground">{activeBucket}</span> by Category</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSubFilter(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  aria-label="Hide sub-filter"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveCategoryFilter(null)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    activeCategoryFilter === null
+                      ? 'border-primary/40 bg-primary/10 text-primary'
+                      : 'border-border bg-muted/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                  )}
+                >
+                  All ({categorySubDist.reduce((s, r) => s + r.count, 0).toLocaleString()})
+                </button>
+                {categorySubDist.map((row) => {
+                  const active = activeCategoryFilter === row.category;
+                  const theme = BUCKET_THEME_BY_CATEGORY[row.category];
+                  return (
+                    <button
+                      key={row.category}
+                      type="button"
+                      onClick={() => setActiveCategoryFilter(active ? null : row.category)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                        active
+                          ? cn(theme?.border || 'border-primary/40', theme?.surface || 'bg-primary/10', 'text-foreground')
+                          : 'border-border bg-muted/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                      )}
+                    >
+                      <span className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        active ? (theme?.icon?.replace('text-', 'bg-').split(' ')[0] || 'bg-primary') : 'bg-muted-foreground/60',
+                      )} />
+                      {row.category} ({row.count.toLocaleString()})
+                    </button>
+                  );
+                })}
+              </div>
+              {categorySubDistLoading && (
+                <div className="mt-1.5 text-[10px] text-muted-foreground">Loading…</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Sub-filter: status chips when stages bucket is selected */}
+      <AnimatePresence>
+        {dimension === 'stages' && activeBucket && stageStatusSubDist.length > 0 && showSubFilter && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mb-3 overflow-hidden"
+          >
+            <div className="rounded-xl border border-border bg-card/60 px-3.5 py-2.5">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Filter className="h-3.5 w-3.5" />
+                  <span>Filter <span className="font-semibold text-foreground">{STAGE_FULL_LABELS[activeBucket] || activeBucket}</span> by Status</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSubFilter(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  aria-label="Hide sub-filter"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveStatusFilter(null)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    activeStatusFilter === null
+                      ? 'border-primary/40 bg-primary/10 text-primary'
+                      : 'border-border bg-muted/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                  )}
+                >
+                  All ({stageStatusSubDist.reduce((s, r) => s + r.count, 0).toLocaleString()})
+                </button>
+                {stageStatusSubDist.map((row) => {
+                  const active = activeStatusFilter === row.status;
+                  const dotColor = STATUS_COLORS[row.status] || 'bg-muted-foreground';
+                  return (
+                    <button
+                      key={row.status}
+                      type="button"
+                      onClick={() => setActiveStatusFilter(active ? null : row.status)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                        active
+                          ? (BADGE_COLORS[row.status] || 'border-primary/40 bg-primary/10 text-primary')
+                          : 'border-border bg-muted/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                      )}
+                    >
+                      <span className={cn('h-1.5 w-1.5 rounded-full', dotColor)} />
+                      {row.status} ({row.count.toLocaleString()})
+                    </button>
+                  );
+                })}
+              </div>
+              {stageStatusSubDistLoading && (
+                <div className="mt-1.5 text-[10px] text-muted-foreground">Loading…</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="mb-6 overflow-hidden rounded-xl border border-border bg-card/60">
         <div className="flex flex-col items-start justify-between gap-2 border-b border-border/70 bg-muted/40 px-4 py-3 text-xs sm:flex-row sm:items-center">
           <div className="flex flex-wrap items-center gap-2">
@@ -1230,6 +1517,7 @@ export default function EIPsHomePage() {
                   ['type', 'Type'],
                   ['category', 'Category'],
                   ['status', 'Status'],
+                  ...(dimension === 'stages' ? [['updated_at', 'Upgrade']] : []),
                 ].map(([key, label]) => (
                   <th key={key} className="px-4 py-3">
                     <button onClick={() => toggleSort(key as SortBy)} className="inline-flex items-center gap-1 hover:text-foreground">
@@ -1241,19 +1529,20 @@ export default function EIPsHomePage() {
               </tr>
               <tr className="border-b border-border/60 bg-muted/40">
                 <th className="px-4 py-3"><input value={columnSearch.github} onChange={(e) => handleColumnSearch('github', e.target.value)} placeholder="/EIPs" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
-                <th className="px-4 py-3"><input value={eipDisplayValue} onChange={(e) => handleColumnSearch('eip', e.target.value)} placeholder="EIP-1559 / RIP-7212 / 1559" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
+                <th className="px-4 py-3"><input value={eipDisplayValue} onChange={(e) => handleColumnSearch('eip', e.target.value)} placeholder="/EIP-1559" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
                 <th className="px-4 py-3"><input value={columnSearch.title} onChange={(e) => handleColumnSearch('title', e.target.value)} placeholder="Title" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
                 <th className="px-4 py-3"><input value={columnSearch.author} onChange={(e) => handleColumnSearch('author', e.target.value)} placeholder="Author" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
                 <th className="px-4 py-3"><input value={columnSearch.type} onChange={(e) => handleColumnSearch('type', e.target.value)} placeholder="Type" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
                 <th className="px-4 py-3"><input value={columnSearch.category} onChange={(e) => handleColumnSearch('category', e.target.value)} placeholder="Category" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
                 <th className="px-4 py-3"><input value={columnSearch.status} onChange={(e) => handleColumnSearch('status', e.target.value)} placeholder="Status" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>
+                {dimension === 'stages' && <th className="px-4 py-3"><input value={columnSearch.upgrade} onChange={(e) => handleColumnSearch('upgrade', e.target.value)} placeholder="Upgrade" className="h-9 w-full rounded-md border border-border bg-muted/60 px-3 text-sm text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30" /></th>}
               </tr>
             </thead>
             <tbody>
               {showTableSkeleton ? (
                 Array.from({ length: 10 }).map((_, i) => (
                   <tr key={i} className="border-b border-border/60">
-                    <td colSpan={7} className="px-2 py-3">
+                    <td colSpan={dimension === 'stages' ? 8 : 7} className="px-2 py-3">
                       <div className="h-5 animate-pulse rounded bg-muted" />
                     </td>
                   </tr>
@@ -1301,6 +1590,21 @@ export default function EIPsHomePage() {
                     <td className="px-4 py-3 text-muted-foreground">{row.type || '-'}</td>
                     <td className="px-4 py-3">{row.category}</td>
                     <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${BADGE_COLORS[row.status] || BADGE_COLORS.Unknown}`}>{row.status}</span></td>
+                    {dimension === 'stages' && (
+                      <td className="px-4 py-3">
+                        {(row as typeof row & { upgradeName?: string | null }).upgradeName ? (
+                          <Link
+                            href={`/upgrade/${(row as typeof row & { upgradeName?: string | null }).upgradeName!.toLowerCase()}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-primary hover:underline"
+                          >
+                            <Package className="h-3 w-3" />
+                            {(row as typeof row & { upgradeName?: string | null }).upgradeName}
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">–</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -1393,8 +1697,26 @@ export default function EIPsHomePage() {
 
       <hr className="my-6 border-border" />
 
+      <div className="mb-3 flex items-center justify-end gap-2">
+        <label htmlFor="homepage-month-select" className="text-xs font-medium text-muted-foreground">
+          Month
+        </label>
+        <select
+          id="homepage-month-select"
+          value={currentMonthYear}
+          onChange={(e) => setCurrentMonthYear(e.target.value)}
+          className="h-8 rounded-md border border-border bg-muted/40 px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          {monthYearOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <div className="self-start rounded-xl border border-border bg-card/60 p-4 shadow-sm">
+        <div className="self-start rounded-xl border border-border bg-card/60 p-4 shadow-sm h-[560px] sm:h-[620px] flex flex-col">
           <div className="mb-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="inline-flex items-center gap-2">
@@ -1402,36 +1724,40 @@ export default function EIPsHomePage() {
                 <h3 className={panelTitleClass}>{monthLabel(currentMonthYear)} Insight (Status Changes)</h3>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Monthly status transition distribution and totals.
+                Monthly status distribution.
               </p>
+            </div>
+            <div className="inline-flex items-center gap-2">
               <Link
                 href={`/insights/year-month-analysis?month=${currentMonthYear}`}
-                className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:underline"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:underline"
               >
-                Open full month analysis
+                Open month analysis
                 <ArrowRight className="h-3 w-3" />
               </Link>
+              <button
+                onClick={downloadMonthlyInsightCSV}
+                disabled={downloading}
+                aria-label="Download status changes CSV"
+                title="Download status changes CSV"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/40 text-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:opacity-60"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
             </div>
-            <button
-              onClick={downloadMonthlyInsightCSV}
-              disabled={downloading}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:opacity-60"
-            >
-              <Download className="h-3.5 w-3.5" /> {downloading ? 'Exporting...' : 'Status changes CSV'}
-            </button>
           </div>
 
-          <div className="relative h-[250px] sm:h-[420px]">
+          <div className="relative mt-2 min-h-0 flex-1">
             <div className="h-full w-full">
               {showInsightSkeleton ? (
                 <div className="h-full w-full animate-pulse rounded-xl bg-muted" />
               ) : febDelta.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                  <Activity className="h-10 w-10 text-muted-foreground/40" />
+                <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                  <Activity className="h-8 w-8 text-muted-foreground/35" />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">No status changes yet</p>
                     <p className="mt-1 text-xs text-muted-foreground/70">
-                      Status transitions for {monthLabel(currentMonthYear)} will appear here as they occur.
+                      We&apos;ll populate this chart when transitions start in {monthLabel(currentMonthYear)}.
                     </p>
                   </div>
                 </div>
@@ -1469,7 +1795,7 @@ export default function EIPsHomePage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card/60 p-4 shadow-sm">
+        <div className="rounded-xl border border-border bg-card/60 p-4 shadow-sm h-[560px] sm:h-[620px] flex flex-col">
           <div className="mb-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="inline-flex items-center gap-2">
@@ -1477,22 +1803,33 @@ export default function EIPsHomePage() {
                 <h3 className={panelTitleClass}>Editor Leaderboard ({monthLabel(currentMonthYear)})</h3>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Ranked by PRs touched and editorial actions in the month.
+                Ranked by editor actions this month (open + closed PRs).
               </p>
             </div>
-            <button
-              onClick={downloadLeaderboardDetailedCSV}
-              disabled={downloadingLeaderboard}
-              className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60"
-            >
-              <Download className="h-3.5 w-3.5" /> {downloadingLeaderboard ? 'Exporting...' : 'Detailed CSV'}
-            </button>
+            <div className="inline-flex items-center gap-2">
+              <Link
+                href="/analytics/editors"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Open full leaderboard
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+              <button
+                onClick={downloadLeaderboardDetailedCSV}
+                disabled={downloadingLeaderboard}
+                aria-label="Download editor leaderboard CSV"
+                title="Download editor leaderboard CSV"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-60"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-1 pr-2">
             {showEditorSkeleton
               ? Array.from({ length: 6 }).map((_, i) => (
-                  <div key={`editor-skeleton-${i}`} className="rounded-lg p-2.5 ring-1 ring-border">
+                  <div key={`editor-skeleton-${i}`} className="rounded-lg border border-border p-2.5">
                     <div className="mb-2 flex items-center gap-2">
                       <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
                       <div className="flex-1">
@@ -1503,7 +1840,7 @@ export default function EIPsHomePage() {
                     <div className="h-1.5 animate-pulse rounded-full bg-muted" />
                   </div>
                 ))
-              : febEditors.length === 0 ? (
+              : monthlyEditorRows.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
                   <Trophy className="h-10 w-10 text-muted-foreground/40" />
                   <div>
@@ -1514,22 +1851,38 @@ export default function EIPsHomePage() {
                   </div>
                 </div>
               )
-              : febEditors.map((row, idx) => (
-                  <div key={row.actor} className={`rounded-lg p-2.5 ring-1 ${idx === 0 ? 'bg-primary/10 ring-primary/30' : 'bg-muted/40 ring-border'}`}>
+              : monthlyEditorRows.map((row, idx) => (
+                  <div
+                    key={`editor-${row.actor}`}
+                    className={`rounded-lg px-2.5 py-2.5 border ${idx === 0 ? 'bg-primary/10 border-primary/30' : 'bg-muted/40 border-border'}`}
+                  >
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        <div className="h-8 w-8 overflow-hidden rounded-full ring-1 ring-border">
-                          <Image src={editorAvatar(row.actor)} alt={row.actor} width={32} height={32} className="h-full w-full object-cover" />
+                        <div className="h-8 w-8 shrink-0 rounded-full bg-background/80 p-[1.5px] ring-1 ring-border">
+                          <div className="h-full w-full overflow-hidden rounded-full">
+                            <Image
+                              src={editorAvatar(row.actor)}
+                              alt={row.actor}
+                              width={32}
+                              height={32}
+                              className="h-full w-full object-cover object-center"
+                            />
+                          </div>
                         </div>
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">#{idx + 1} {row.actor}</p>
                           <p className="text-xs text-muted-foreground">{row.totalActions} actions across {row.prsTouched} PRs</p>
                         </div>
                       </div>
-                      <span className="text-sm font-semibold text-primary">{row.totalActions}</span>
+                      <span className="ml-2 min-w-[2.5ch] shrink-0 text-right text-sm leading-tight font-semibold tabular-nums text-primary">
+                        {row.totalActions}
+                      </span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-muted/80">
-                      <div className="h-full bg-primary" style={{ width: `${Math.max(8, (row.totalActions / maxEditor) * 100)}%` }} />
+                      <div
+                        className="h-full bg-primary transition-all duration-300"
+                        style={{ width: `${row.totalActions > 0 ? Math.max(8, (row.totalActions / maxEditor) * 100) : 0}%` }}
+                      />
                     </div>
                   </div>
                 ))}
@@ -1639,7 +1992,7 @@ export default function EIPsHomePage() {
             )}
           </div>
 
-          <aside className="rounded-xl border border-border bg-card/60 p-3 shadow-sm">
+          <aside className="self-start rounded-xl border border-border bg-card/60 p-3 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">Latest Editor Activity (Open PRs)</h3>
               <span className="rounded-full bg-muted/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -1656,7 +2009,9 @@ export default function EIPsHomePage() {
                   </div>
                 ))
               ) : recentEditorActivities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No editor activity found for open PRs.</p>
+                <p className="text-sm text-muted-foreground">
+                  No editor activity found for open PRs right now. Monthly leaderboard includes open and closed PR actions.
+                </p>
               ) : (
                 recentEditorActivities.slice(0, 5).map((item, idx) => (
                   <a
