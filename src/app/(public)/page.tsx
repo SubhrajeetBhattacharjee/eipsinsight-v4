@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowRight,
   ChevronDown,
@@ -20,6 +21,8 @@ import {
   Cpu,
   Download,
   Eye,
+  Flame,
+  Info,
   ExternalLink,
   FileText,
   Filter,
@@ -30,6 +33,8 @@ import {
   Package,
   Pause,
   Trophy,
+  Minus,
+  MessageSquare,
   XCircle,
   Wrench,
   Zap,
@@ -116,6 +121,17 @@ type UpgradeTimelineRow = {
   proposed: string[];
 };
 
+type NewcomerTrendingProposal = {
+  proposalNumber: number;
+  proposalType: 'EIP' | 'ERC' | 'RIP';
+  title: string;
+  status?: string;
+  category?: string;
+  replies: number;
+  destination: 'internal' | 'magicians';
+  url: string;
+};
+
 type EditorRepoFilter = '' | 'eips' | 'ercs' | 'rips';
 type DeveloperRepoFilter = '' | 'eips' | 'ercs' | 'rips';
 
@@ -136,6 +152,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const BOARD_PROCESS_ORDER = ['Status Change', 'New EIP', 'PR DRAFT', 'Typo', 'Website', 'EIP-1', 'Tooling', 'Content Edit', 'Misc'];
+const DEV_BOARD_GOVSTATE_BADGES: Record<string, string> = {
+  'Waiting on Editor': 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30',
+  'Waiting on Author': 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+  AWAITED: 'bg-slate-500/10 text-slate-700 dark:text-slate-300 border-slate-500/30',
+  Uncategorized: 'bg-muted text-muted-foreground border-border',
+};
 
 const BOARD_PROCESS_BADGES: Record<string, string> = {
   Typo: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20',
@@ -451,32 +473,32 @@ const PERSONA_SECTION_VISIBILITY: Record<
     reference: false,
   },
   builder: {
-    quickAccess: true,
+    quickAccess: false,
     upgradeWatch: false,
-    trending: false,
+    trending: true,
+    reviewQueue: false,
+    categoryBreakdown: false,
+    browse: true,
+    governanceOverTime: true,
+    board: true,
+    monthly: false,
+    governance: true,
+    social: true,
+    reference: false,
+  },
+  newcomer: {
+    quickAccess: false,
+    upgradeWatch: true,
+    trending: true,
     reviewQueue: false,
     categoryBreakdown: false,
     browse: false,
     governanceOverTime: false,
-    board: false,
+    board: true,
     monthly: false,
     governance: false,
     social: false,
     reference: false,
-  },
-  newcomer: {
-    quickAccess: true,
-    upgradeWatch: false,
-    trending: false,
-    reviewQueue: false,
-    categoryBreakdown: false,
-    browse: false,
-    governanceOverTime: false,
-    board: false,
-    monthly: false,
-    governance: false,
-    social: false,
-    reference: true,
   },
 };
 
@@ -558,6 +580,28 @@ function githubRepoFromShort(repoShort: string) {
   if (key === 'ercs') return 'ethereum/ERCs';
   if (key === 'rips') return 'ethereum/RIPs';
   return 'ethereum/EIPs';
+}
+
+function fmtWaitCompact(days: number) {
+  if (days >= 7) {
+    const w = Math.floor(days / 7);
+    return `${w}w`;
+  }
+  return `${days}d`;
+}
+
+function fmtBoardDate(d: string) {
+  return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function waitPriority(days: number) {
+  if (days > 28) return { color: 'text-red-600 dark:text-red-400', Icon: Flame };
+  if (days > 7) return { color: 'text-amber-600 dark:text-amber-400', Icon: AlertTriangle };
+  return { color: 'text-emerald-600 dark:text-emerald-400', Icon: Minus };
 }
 
 function formatEditorAction(eventType: string) {
@@ -700,6 +744,8 @@ export default function EIPsHomePage() {
   const [upgradeWatchSlug, setUpgradeWatchSlug] = useState('glamsterdam');
   const [upgradeTimelineRows, setUpgradeTimelineRows] = useState<UpgradeTimelineRow[]>([]);
   const [upgradeTimelineLoading, setUpgradeTimelineLoading] = useState(false);
+  const [newcomerTrendingRows, setNewcomerTrendingRows] = useState<NewcomerTrendingProposal[]>([]);
+  const [newcomerTrendingLoading, setNewcomerTrendingLoading] = useState(false);
   const defaultMonthYear = useMemo(() => {
     const now = new Date();
     return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -744,6 +790,38 @@ export default function EIPsHomePage() {
 
   useEffect(() => {
     setShowPersonaWorkspace(true);
+  }, [activePersona]);
+
+  useEffect(() => {
+    if (activePersona !== 'builder') return;
+    setDimension('repo');
+    setActiveBucket('ERCs');
+    setPage(1);
+  }, [activePersona]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (activePersona !== 'newcomer') {
+      setNewcomerTrendingRows([]);
+      return;
+    }
+    (async () => {
+      setNewcomerTrendingLoading(true);
+      try {
+        const data = await client.governanceTimeline.getTrendingProposals({ limit: 6 });
+        if (!cancelled) {
+          setNewcomerTrendingRows((data || []) as NewcomerTrendingProposal[]);
+        }
+      } catch (err) {
+        console.error('Failed to load newcomer trending proposals:', err);
+        if (!cancelled) setNewcomerTrendingRows([]);
+      } finally {
+        if (!cancelled) setNewcomerTrendingLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [activePersona]);
 
   useEffect(() => {
@@ -1410,9 +1488,9 @@ export default function EIPsHomePage() {
       return { upgradeWatch: 1, trending: 2, reviewQueue: 0, categoryBreakdown: 0, browse: 3, governanceOverTime: 4, board: 5, monthly: 0, governance: 6, social: 0, learning: 0 };
     }
     if (activePersona === 'builder') {
-      return { upgradeWatch: 0, trending: 0, reviewQueue: 0, categoryBreakdown: 0, browse: 1, governanceOverTime: 0, board: 0, monthly: 2, governance: 4, social: 5, learning: 3 };
+      return { upgradeWatch: 0, trending: 1, reviewQueue: 0, categoryBreakdown: 0, browse: 2, governanceOverTime: 4, board: 3, monthly: 0, governance: 5, social: 6, learning: 0 };
     }
-    return { upgradeWatch: 0, trending: 0, reviewQueue: 0, categoryBreakdown: 0, browse: 2, governanceOverTime: 0, board: 0, monthly: 3, governance: 4, social: 5, learning: 1 };
+    return { upgradeWatch: 3, trending: 2, reviewQueue: 0, categoryBreakdown: 0, browse: 0, governanceOverTime: 0, board: 4, monthly: 0, governance: 0, social: 0, learning: 1 };
   }, [activePersona]);
   const normalizedProcessRows = useMemo(
     () => processBreakdownRows.filter((row) => row.count > 0),
@@ -1572,7 +1650,7 @@ export default function EIPsHomePage() {
   }, [editorCategoryPage, editorCategoryTotalPages]);
   useEffect(() => {
     let cancelled = false;
-    if (activePersona !== 'developer') {
+    if (activePersona !== 'developer' && activePersona !== 'newcomer') {
       setUpgradeTimelineRows([]);
       return;
     }
@@ -1735,14 +1813,63 @@ export default function EIPsHomePage() {
           }}
         />
       )}
-      {activePersona === 'developer' && visibleSections.trending && (
+      {activePersona === 'newcomer' && (
+        <section
+          style={{ order: sectionOrder.learning }}
+          className="mb-6"
+          id="newcomer-learning-resources"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>Learning Resources</h2>
+              <p className={sectionSubtitleClass}>Start here to understand Ethereum standards without the noise.</p>
+            </div>
+            <CopyLinkButton sectionId="newcomer-learning-resources" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {[
+              { title: 'Resource Hub', href: '/resources', desc: 'Beginner-friendly entry point for standards learning.', icon: BookOpen },
+              { title: 'Documentation', href: '/resources/docs', desc: 'Core docs and practical explainers for proposals.', icon: FileText },
+              { title: 'FAQ / Reference', href: '/resources/faq', desc: 'Fast answers to common terminology and workflows.', icon: Info },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={`newcomer-learn-${item.title}`}
+                  href={item.href}
+                  className="group rounded-lg border border-border bg-card/60 px-3 py-3 transition hover:border-primary/35 hover:bg-primary/[0.04]"
+                >
+                  <div className="mb-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{item.desc}</p>
+                </Link>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/resources"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore Resources
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
+      )}
+      {(activePersona === 'developer' || activePersona === 'builder') && visibleSections.trending && (
         <section
           style={{ order: sectionOrder.trending }}
           className="mb-6 border-t border-border/70 pt-6"
-          id="developer-trending-proposals"
+          id={activePersona === 'builder' ? 'builder-trending-proposals' : 'developer-trending-proposals'}
         >
           <div className="mb-2 flex items-start justify-end">
-            <CopyLinkButton sectionId="developer-trending-proposals" className="h-8 w-8 rounded-md" />
+            <CopyLinkButton
+              sectionId={activePersona === 'builder' ? 'builder-trending-proposals' : 'developer-trending-proposals'}
+              className="h-8 w-8 rounded-md"
+            />
           </div>
           <TrendingProposals />
           <div className="mt-2 flex justify-center">
@@ -1751,6 +1878,103 @@ export default function EIPsHomePage() {
               className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
             >
               Explore Trending
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
+      )}
+      {activePersona === 'newcomer' && visibleSections.trending && (
+        <section
+          style={{ order: sectionOrder.trending }}
+          className="mb-6 border-t border-border/70 pt-6"
+          id="newcomer-trending-proposals"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>Trending Proposals</h2>
+              <p className={sectionSubtitleClass}>A simple snapshot of proposals with active discussions.</p>
+            </div>
+            <CopyLinkButton sectionId="newcomer-trending-proposals" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {newcomerTrendingLoading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={`newcomer-trending-skeleton-${i}`} className="h-24 animate-pulse rounded-lg border border-border bg-muted/40" />
+              ))
+            ) : newcomerTrendingRows.length === 0 ? (
+              <div className="col-span-full rounded-lg border border-border bg-muted/30 px-3 py-8 text-center text-sm text-muted-foreground">
+                No trending proposals available right now.
+              </div>
+            ) : (
+              newcomerTrendingRows.slice(0, 6).map((item) => (
+                <a
+                  key={`newcomer-trending-${item.proposalType}-${item.proposalNumber}`}
+                  href={item.url}
+                  target={item.destination === 'magicians' ? '_blank' : undefined}
+                  rel={item.destination === 'magicians' ? 'noopener noreferrer' : undefined}
+                  className="rounded-lg border border-border bg-card/60 px-3 py-3 transition hover:border-primary/35 hover:bg-primary/[0.04]"
+                >
+                  <div className="mb-1 inline-flex rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                    {item.proposalType}-{item.proposalNumber}
+                  </div>
+                  <p className="line-clamp-2 text-sm font-medium text-foreground">{item.title}</p>
+                  <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <MessageSquare className="h-3 w-3" />
+                    {item.replies} replies
+                  </div>
+                </a>
+              ))
+            )}
+          </div>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/explore/trending"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore Trending
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
+      )}
+      {activePersona === 'newcomer' && visibleSections.upgradeWatch && (
+        <section
+          style={{ order: sectionOrder.upgradeWatch }}
+          className="mb-6 border-t border-border/70 pt-6"
+          id="newcomer-upgrade-watch"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>Upgrade Watch</h2>
+              <p className={sectionSubtitleClass}>Simplified snapshot of where proposal discussions stand for upgrades.</p>
+            </div>
+            <CopyLinkButton sectionId="newcomer-upgrade-watch" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              { key: 'included', label: 'Included', tone: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' },
+              { key: 'scheduled', label: 'Scheduled', tone: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300' },
+              { key: 'considered', label: 'Considered', tone: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' },
+              { key: 'proposed', label: 'Proposed', tone: 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300' },
+              { key: 'declined', label: 'Declined', tone: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300' },
+            ].map((metric) => (
+              <div key={`newcomer-upgrade-${metric.key}`} className={cn('rounded-lg border px-3 py-3', metric.tone)}>
+                <p className="text-[11px] font-medium uppercase tracking-wide">{metric.label}</p>
+                <p className="mt-1 text-2xl font-semibold text-foreground">
+                  {(latestUpgradeSnapshot?.[metric.key as keyof UpgradeTimelineRow] as string[] | undefined)?.length ?? 0}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Showing latest snapshot for <span className="font-medium text-foreground">Glamsterdam</span>.
+          </p>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/upgrade"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore Upgrades
               <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
@@ -1772,6 +1996,39 @@ export default function EIPsHomePage() {
               className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
             >
               Explore Governance
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
+      )}
+      {activePersona === 'builder' && visibleSections.governanceOverTime && (
+        <section
+          style={{ order: sectionOrder.governanceOverTime }}
+          className="mb-6 border-t border-border/70 pt-6"
+          id="builder-eip-builder-focus"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>EIP Builder</h2>
+              <p className={sectionSubtitleClass}>Primary workspace to draft, validate, and structure standards.</p>
+            </div>
+            <CopyLinkButton sectionId="builder-eip-builder-focus" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="rounded-xl border border-primary/30 bg-primary/10 p-4">
+            <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
+              <Code className="h-4 w-4" />
+            </div>
+            <h3 className="text-base font-semibold text-foreground">Build proposals faster with guided drafting</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Start new standards, validate formatting early, and keep contribution quality high before opening PRs.
+            </p>
+          </div>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/tools/eip-builder"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore EIP Builder
               <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
@@ -1805,56 +2062,73 @@ export default function EIPsHomePage() {
           </div>
           <div className="overflow-hidden rounded-xl border border-border bg-card/60">
             <div className="hidden md:block">
-              <table className="min-w-full text-sm">
+              <table className="min-w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/70 bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    <th className="px-3 py-2.5">PR</th>
-                    <th className="px-3 py-2.5">Title</th>
-                    <th className="px-3 py-2.5">Repo</th>
-                    <th className="px-3 py-2.5">State</th>
-                    <th className="px-3 py-2.5">Process</th>
-                    <th className="px-3 py-2.5">Wait</th>
+                    <th className="w-20 px-3 py-2">PR</th>
+                    <th className="px-3 py-2">Title</th>
+                    <th className="w-28 px-3 py-2">Author</th>
+                    <th className="w-20 px-3 py-2">Wait</th>
+                    <th className="w-28 px-3 py-2">Process</th>
+                    <th className="w-36 px-3 py-2">Status</th>
+                    <th className="w-16 px-3 py-2 text-center">Open</th>
                   </tr>
                 </thead>
                 <tbody>
                   {developerBoardLoading ? (
                     Array.from({ length: 6 }).map((_, i) => (
                       <tr key={`dev-board-skeleton-${i}`} className="border-b border-border/60">
-                        <td colSpan={6} className="px-3 py-2.5">
+                        <td colSpan={7} className="px-3 py-2.5">
                           <div className="h-4 animate-pulse rounded bg-muted" />
                         </td>
                       </tr>
                     ))
                   ) : developerBoardRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
                         No open PR rows found for this filter.
                       </td>
                     </tr>
                   ) : (
-                    developerBoardRows.map((row) => (
-                      <tr key={`dev-board-${row.repoShort}-${row.prNumber}`} className="border-b border-border/60 hover:bg-muted/35">
-                        <td className="px-3 py-2.5">
-                          <a
-                            href={`/pr/${githubRepoFromShort(row.repoShort)}/${row.prNumber}`}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            #{row.prNumber}
-                          </a>
+                    developerBoardRows.map((row) => {
+                      const p = waitPriority(row.waitDays);
+                      const stateTone = DEV_BOARD_GOVSTATE_BADGES[row.govState] || DEV_BOARD_GOVSTATE_BADGES.Uncategorized;
+                      return (
+                      <tr key={`dev-board-${row.repoShort}-${row.prNumber}`} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+                        <td className="px-3 py-2 font-mono font-semibold text-primary">#{row.prNumber}</td>
+                        <td className="px-3 py-2">
+                          <p className="truncate leading-snug text-foreground">{row.title || `PR #${row.prNumber}`}</p>
+                          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{fmtBoardDate(row.createdAt)} · {row.repoShort.toUpperCase()}</p>
                         </td>
-                        <td className="max-w-[460px] truncate px-3 py-2.5 text-foreground">
-                          {row.title || `PR #${row.prNumber}`}
+                        <td className="px-3 py-2 text-muted-foreground">{row.author || '—'}</td>
+                        <td className="px-3 py-2">
+                          <span className={cn('inline-flex items-center gap-1 text-[11px] font-medium', p.color)}>
+                            <p.Icon className="h-3 w-3" />
+                            {fmtWaitCompact(row.waitDays)}
+                          </span>
                         </td>
-                        <td className="px-3 py-2.5 text-muted-foreground">{row.repoShort.toUpperCase()}</td>
-                        <td className="px-3 py-2.5 text-muted-foreground">{row.govState || '-'}</td>
-                        <td className="px-3 py-2.5">
-                          <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[11px]', BOARD_PROCESS_BADGES[row.processType] || BOARD_PROCESS_BADGES.Misc)}>
+                        <td className="px-3 py-2">
+                          <span className={cn('whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium', BOARD_PROCESS_BADGES[row.processType] || BOARD_PROCESS_BADGES.Misc)}>
                             {row.processType || 'Misc'}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-muted-foreground">{Math.max(0, Number(row.waitDays || 0))}d</td>
+                        <td className="px-3 py-2">
+                          <span className={cn('whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium', stateTone)}>
+                            {row.govState || 'Uncategorized'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <a
+                            href={`https://github.com/${row.repo}/pull/${row.prNumber}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] text-primary transition-colors hover:bg-primary/15"
+                          >
+                            <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        </td>
                       </tr>
-                    ))
+                    )})
                   )}
                 </tbody>
               </table>
@@ -1922,6 +2196,100 @@ export default function EIPsHomePage() {
           </div>
         </section>
       )}
+      {activePersona === 'builder' && visibleSections.board && (
+        <section
+          style={{ order: sectionOrder.board }}
+          className="mb-6 border-t border-border/70 pt-6"
+          id="builder-tool-shortcuts"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>Tool Shortcuts</h2>
+              <p className={sectionSubtitleClass}>Jump directly into core contribution tools.</p>
+            </div>
+            <CopyLinkButton sectionId="builder-tool-shortcuts" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { title: 'Editing Board', href: '/tools/board', blurb: 'Track active PR queues.', icon: GitPullRequest },
+              { title: 'Timeline', href: '/tools/timeline', blurb: 'Proposal lifecycle flow.', icon: GitBranch },
+              { title: 'Dependencies', href: '/tools/dependencies', blurb: 'Inter-proposal links.', icon: Network },
+              { title: 'EIP Builder', href: '/tools/eip-builder', blurb: 'Draft with validation.', icon: Code },
+            ].map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <Link
+                  key={`builder-tool-${tool.title}`}
+                  href={tool.href}
+                  className="group rounded-lg border border-border bg-card/60 px-3 py-3 transition hover:border-primary/35 hover:bg-primary/[0.04]"
+                >
+                  <div className="mb-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">{tool.title}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{tool.blurb}</p>
+                </Link>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/tools"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore Tools
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
+      )}
+      {activePersona === 'newcomer' && visibleSections.board && (
+        <section
+          style={{ order: sectionOrder.board }}
+          className="mb-6 border-t border-border/70 pt-6"
+          id="newcomer-tools-shortcuts"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>Beginner-Friendly Tool Shortcuts</h2>
+              <p className={sectionSubtitleClass}>Start with the essential tools for exploration and contribution.</p>
+            </div>
+            <CopyLinkButton sectionId="newcomer-tools-shortcuts" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { title: 'Tools Home', href: '/tools', blurb: 'See all available standards tools.', icon: Wrench },
+              { title: 'Editing Board', href: '/tools/board', blurb: 'Understand current PR flow.', icon: GitPullRequest },
+              { title: 'Timeline', href: '/tools/timeline', blurb: 'See proposal lifecycle changes.', icon: GitBranch },
+              { title: 'Dependencies', href: '/tools/dependencies', blurb: 'Explore proposal relationships.', icon: Network },
+            ].map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <Link
+                  key={`newcomer-tool-${tool.title}`}
+                  href={tool.href}
+                  className="rounded-lg border border-border bg-card/60 px-3 py-3 transition hover:border-primary/35 hover:bg-primary/[0.04]"
+                >
+                  <div className="mb-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">{tool.title}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{tool.blurb}</p>
+                </Link>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/tools"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore Tools
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
+      )}
       {activePersona === 'editor' && visibleSections.reviewQueue && (
         <EditorReviewQueueSection
           sectionTitleClass={sectionTitleClass}
@@ -1964,16 +2332,20 @@ export default function EIPsHomePage() {
       <div
         style={activePersona === 'editor' ? undefined : { order: sectionOrder.browse }}
         className={cn('mb-6', activePersona === 'editor' && 'border-t border-border/70 pt-6')}
-        id="editor-browse-snapshot"
+        id={activePersona === 'builder' ? 'builder-browse-snapshot' : 'editor-browse-snapshot'}
       >
       <div className="mb-3 space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start">
             <div>
               <h2 className={sectionTitleClass}>
-              Browse by Status, Category, Repository & Stages
+                Browse by Status, Category, Repository & Stages
               </h2>
-              <p className={sectionSubtitleClass}>Explore a compact snapshot here, then jump to full explorer tools.</p>
+              <p className={sectionSubtitleClass}>
+                {activePersona === 'builder'
+                  ? 'ERC-focused browse view with quick status/category/repository checks.'
+                  : 'Explore a compact snapshot here, then jump to full explorer tools.'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -2002,13 +2374,16 @@ export default function EIPsHomePage() {
                     <option value="status">Status</option>
                     <option value="category">Category</option>
                     <option value="repo">Repo</option>
-                    <option value="stages">Stages</option>
+                    {activePersona !== 'builder' && <option value="stages">Stages</option>}
                   </select>
                 </span>
               );
             })()}
-            {activePersona === 'editor' && (
-              <CopyLinkButton sectionId="editor-browse-snapshot" className="h-8 w-8 rounded-md" />
+            {(activePersona === 'editor' || activePersona === 'builder') && (
+              <CopyLinkButton
+                sectionId={activePersona === 'builder' ? 'builder-browse-snapshot' : 'editor-browse-snapshot'}
+                className="h-8 w-8 rounded-md"
+              />
             )}
           </div>
         </div>
@@ -2926,10 +3301,10 @@ export default function EIPsHomePage() {
         <div className="mb-4 flex flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className={sectionTitleClass}>
-              {activePersona === 'developer' ? 'Recent Activity' : 'Recent Governance Activity'}
+              {(activePersona === 'developer' || activePersona === 'builder') ? 'Recent Activity' : 'Recent Governance Activity'}
             </h2>
             <p className={sectionSubtitleClass}>
-              {activePersona === 'developer'
+              {(activePersona === 'developer' || activePersona === 'builder')
                 ? 'Latest governance and PR movement with actor context and proposal links.'
                 : 'Latest status transitions with actor context, proposal links, and lifecycle details.'}
             </p>
@@ -3074,13 +3449,53 @@ export default function EIPsHomePage() {
 
       </div>
       )}
-      {visibleSections.social && (
+      {visibleSections.social && activePersona === 'editor' && (
       <section
         style={activePersona === 'editor' ? undefined : { order: sectionOrder.social }}
         className={cn(activePersona === 'editor' && 'border-t border-border/70 pt-6')}
       >
         <SocialCommunityUpdates showCommunityResources={activePersona !== 'editor'} />
       </section>
+      )}
+      {visibleSections.social && activePersona === 'builder' && (
+        <section
+          style={{ order: sectionOrder.social }}
+          className="mb-2 border-t border-border/70 pt-6"
+          id="builder-practical-resources"
+        >
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className={sectionTitleClass}>Practical Resources</h2>
+              <p className={sectionSubtitleClass}>Documentation and references to contribute effectively.</p>
+            </div>
+            <CopyLinkButton sectionId="builder-practical-resources" className="h-8 w-8 rounded-md" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {[
+              { title: 'Docs', href: '/resources/docs', desc: 'Standards workflow guides and references.' },
+              { title: 'Resources', href: '/resources', desc: 'Knowledge hub for contributors and builders.' },
+              { title: 'FAQ', href: '/resources/faq', desc: 'Quick answers to common standards questions.' },
+            ].map((item) => (
+              <Link
+                key={`builder-resource-${item.title}`}
+                href={item.href}
+                className="rounded-lg border border-border bg-card/60 px-3 py-3 transition hover:border-primary/35 hover:bg-primary/[0.04]"
+              >
+                <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{item.desc}</p>
+              </Link>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-center">
+            <Link
+              href="/resources/docs"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary hover:bg-primary/15"
+            >
+              Explore Resources
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </section>
       )}
       </PersonaDashboardComponent>
     </div>
