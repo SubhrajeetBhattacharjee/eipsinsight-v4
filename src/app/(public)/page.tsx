@@ -3026,11 +3026,11 @@ export default function EIPsHomePage() {
             <p className={sectionSubtitleClass}>Monthly status distribution and editor activity snapshot.</p>
           </div>
           <div className="flex items-center gap-2">
-            <label htmlFor="homepage-month-select" className="text-xs font-medium text-muted-foreground">
+            <label htmlFor="homepage-month-select-editor" className="text-xs font-medium text-muted-foreground">
               Month
             </label>
             <select
-              id="homepage-month-select"
+              id="homepage-month-select-editor"
               value={currentMonthYear}
               onChange={(e) => setCurrentMonthYear(e.target.value)}
               className="h-8 rounded-md border border-border bg-muted/40 px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
@@ -3048,11 +3048,11 @@ export default function EIPsHomePage() {
 
       {activePersona !== 'editor' && (
       <div className="mb-3 flex items-center justify-end gap-2">
-        <label htmlFor="homepage-month-select" className="text-xs font-medium text-muted-foreground">
+        <label htmlFor="homepage-month-select-default" className="text-xs font-medium text-muted-foreground">
           Month
         </label>
         <select
-          id="homepage-month-select"
+          id="homepage-month-select-default"
           value={currentMonthYear}
           onChange={(e) => setCurrentMonthYear(e.target.value)}
           className="h-8 rounded-md border border-border bg-muted/40 px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"

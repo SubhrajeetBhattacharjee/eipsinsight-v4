@@ -350,6 +350,29 @@ function sortItemsByPersonaPriority(
   });
 }
 
+const SECTION_LABEL_OVERRIDES: Record<string, string> = {
+  "persona-home-workspace": "Workspace",
+  "developer-upgrade-watch": "Upgrade Watch",
+  "developer-governance-over-time": "Over Time",
+  "developer-board-snapshot": "Board",
+  "editor-review-queue": "Review Queue",
+  "editor-category-breakdown": "Breakdown",
+  "editor-browse-snapshot": "Browse",
+  "editor-monthly-insight": "Monthly",
+  "builder-eip-builder-focus": "EIP Builder",
+  "builder-tool-shortcuts": "Tool Shortcuts",
+  "builder-practical-resources": "Resources",
+  "newcomer-learning-resources": "Learning",
+  "newcomer-trending-proposals": "Trending",
+  "newcomer-upgrade-watch": "Upgrade Watch",
+  "newcomer-tools-shortcuts": "Tool Shortcuts",
+  "recent-governance-activity": "Recent Activity",
+  "explore-detail-header": "Overview",
+  "explore-detail-timeline": "Over Time",
+  "explore-detail-editor-reviews-24h": "Reviews (24h)",
+  "explore-detail-proposals-table": "Table",
+};
+
 function getOrderedSections(persona: Persona | null): SidebarSection[] {
   const sectionMap = new Map(sidebarSections.map((s) => [s.id, s]));
   const mainSection = sectionMap.get("main")!;
@@ -487,7 +510,11 @@ function AppSidebarContent() {
         seen.add(id);
         const fromData = node.getAttribute("data-sidebar-label")?.trim();
         const heading = node.querySelector<HTMLElement>("h1, h2, h3");
-        const title = fromData || heading?.textContent?.trim() || toTitle(id);
+        const title =
+          SECTION_LABEL_OVERRIDES[id] ||
+          fromData ||
+          heading?.textContent?.trim() ||
+          toTitle(id);
         const titleKey = title.toLowerCase().replace(/\s+/g, " ").trim();
         if (seenTitles.has(titleKey)) continue;
         seenTitles.add(titleKey);
@@ -779,14 +806,8 @@ function AppSidebarContent() {
 
   const renderItem = (item: SidebarItem) => {
     const isActive = isParentPathActive(item.href);
-    const contextualSectionsNode: SidebarSubItem | null = isActive && pageSectionItems.length > 0
-      ? {
-          title: "Sections",
-          href: `${pathname}${currentSearchStr ? `?${currentSearchStr}` : ""}`,
-          items: pageSectionItems,
-        }
-      : null;
-    const mergedSubItems = [...(item.items ?? []), ...(contextualSectionsNode ? [contextualSectionsNode] : [])];
+    const contextualSectionItems: SidebarSubItem[] = isActive ? pageSectionItems : [];
+    const mergedSubItems = [...(item.items ?? []), ...contextualSectionItems];
     const hasSubItems = mergedSubItems.length > 0;
     const isItemOpen = openItem === item.title;
     const isChildActive = hasActiveChild(mergedSubItems);
