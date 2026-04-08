@@ -60,6 +60,7 @@ interface SidebarSubItem {
   title: string;
   href: string;
   sectionId?: string; // Backward compat; prefer href hash sections (/path#section)
+  items?: SidebarSubItem[];
 }
 
 interface SidebarItem {
@@ -424,6 +425,7 @@ function AppSidebarContent() {
     const active = getActiveItemTitle(pathname);
     return active ?? null;
   });
+  const [openSubTrees, setOpenSubTrees] = React.useState<Record<string, boolean>>({});
   const rememberedOpen = React.useRef<string | null>(openItem);
 
   // Scroll spy state (kept for future use)
@@ -544,6 +546,9 @@ function AppSidebarContent() {
   const toggleItem = (title: string) => {
     setOpenItem((prev) => (prev === title ? null : title));
   };
+  const toggleSubTree = React.useCallback((key: string) => {
+    setOpenSubTrees((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const prevState = React.useRef(state);
 
@@ -641,6 +646,9 @@ function AppSidebarContent() {
    */
   const isSubItemActive = React.useCallback(
     (subItem: SidebarSubItem): boolean => {
+      if (subItem.items?.length) {
+        return subItem.items.some((child) => isSubItemActive(child));
+      }
       // Parse the href into path + search
       const url = new URL(subItem.href, "http://localhost");
       const hrefPath = url.pathname;
@@ -686,7 +694,7 @@ function AppSidebarContent() {
   const hasActiveChild = React.useCallback(
     (items?: SidebarSubItem[]): boolean => {
       if (!items) return false;
-      return items.some((item) => isSubItemActive(item));
+      return items.some((item) => isSubItemActive(item) || hasActiveChild(item.items));
     },
     [isSubItemActive]
   );
@@ -695,11 +703,44 @@ function AppSidebarContent() {
   // Render
   // ========================================================================
 
-  const renderSubItem = (subItem: SidebarSubItem) => {
+  const renderSubItem = (subItem: SidebarSubItem, keyPath: string) => {
     const isActive = isSubItemActive(subItem);
+    const hasNested = Boolean(subItem.items?.length);
+    const subtreeKey = `${pathname}::${keyPath}`;
+    const nestedOpen = openSubTrees[subtreeKey] || isActive;
+
+    if (hasNested) {
+      return (
+        <SidebarMenuSubItem key={`${subtreeKey}-${subItem.title}`}>
+          <Collapsible open={nestedOpen} onOpenChange={() => toggleSubTree(subtreeKey)}>
+            <CollapsibleTrigger asChild>
+              <SidebarMenuSubButton
+                isActive={isActive}
+                className={cn(
+                  "rounded-md py-1.5 motion-safe:transition-all motion-safe:duration-300",
+                  "border border-transparent hover:border-border hover:bg-muted/60",
+                  "data-[active=true]:!bg-primary/15 data-[active=true]:!text-foreground",
+                  isActive && "bg-primary/10 text-foreground font-medium border-primary/30"
+                )}
+              >
+                <span className="inline-flex w-full items-center justify-between text-xs">
+                  <span>{subItem.title}</span>
+                  <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", nestedOpen && "rotate-90 text-primary")} />
+                </span>
+              </SidebarMenuSubButton>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
+              <SidebarMenuSub className="ml-0 border-l border-border/70 pl-3 pt-1">
+                {subItem.items?.map((child, idx) => renderSubItem(child, `${keyPath}.${idx}`))}
+              </SidebarMenuSub>
+            </CollapsibleContent>
+          </Collapsible>
+        </SidebarMenuSubItem>
+      );
+    }
 
     return (
-      <SidebarMenuSubItem key={subItem.title + subItem.href}>
+      <SidebarMenuSubItem key={subItem.title + subItem.href + keyPath}>
         <SidebarMenuSubButton
           asChild
           isActive={isActive}
@@ -738,8 +779,14 @@ function AppSidebarContent() {
 
   const renderItem = (item: SidebarItem) => {
     const isActive = isParentPathActive(item.href);
-    const contextualSections = isActive ? pageSectionItems : [];
-    const mergedSubItems = [...(item.items ?? []), ...contextualSections];
+    const contextualSectionsNode: SidebarSubItem | null = isActive && pageSectionItems.length > 0
+      ? {
+          title: "Sections",
+          href: `${pathname}${currentSearchStr ? `?${currentSearchStr}` : ""}`,
+          items: pageSectionItems,
+        }
+      : null;
+    const mergedSubItems = [...(item.items ?? []), ...(contextualSectionsNode ? [contextualSectionsNode] : [])];
     const hasSubItems = mergedSubItems.length > 0;
     const isItemOpen = openItem === item.title;
     const isChildActive = hasActiveChild(mergedSubItems);
@@ -813,15 +860,7 @@ function AppSidebarContent() {
                 )}
               >
                 <SidebarMenuSub className="ml-0 border-l-2 border-border/80 pl-6 pt-2">
-                  {item.items?.map(renderSubItem)}
-                  {contextualSections.length > 0 && (
-                    <>
-                      <div className="mb-1 mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/90">
-                        Sections
-                      </div>
-                      {contextualSections.map(renderSubItem)}
-                    </>
-                  )}
+                  {mergedSubItems.map((sub, idx) => renderSubItem(sub, `${item.title}.${idx}`))}
                 </SidebarMenuSub>
               </CollapsibleContent>
             )}
