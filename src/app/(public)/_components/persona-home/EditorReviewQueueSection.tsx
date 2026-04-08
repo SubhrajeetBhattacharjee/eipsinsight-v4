@@ -63,7 +63,7 @@ export default function EditorReviewQueueSection({
   githubRepoFromShort,
 }: EditorReviewQueueSectionProps) {
   return (
-    <section className="mb-6" id="editor-review-queue">
+    <section className="mb-6 border-t border-border/70 pt-6" id="editor-review-queue">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <h2 className={sectionTitleClass}>Editor Review Queue</h2>
@@ -233,4 +233,3 @@ export default function EditorReviewQueueSection({
     </section>
   );
 }
-

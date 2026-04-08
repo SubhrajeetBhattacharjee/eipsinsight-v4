@@ -3014,7 +3014,7 @@ export default function EIPsHomePage() {
       {visibleSections.monthly && (
       <div
         style={activePersona === 'editor' ? undefined : { order: sectionOrder.monthly }}
-        className={cn(activePersona === 'editor' && 'border-t border-border/70 pt-4 pb-4')}
+        className={cn(activePersona === 'editor' && 'mb-6 border-t border-border/70 pt-6')}
         id="editor-monthly-insight"
       >
       {activePersona !== 'editor' && <hr className="my-6 border-border" />}
@@ -3293,7 +3293,7 @@ export default function EIPsHomePage() {
       {visibleSections.governance && (
       <div
         style={activePersona === 'editor' ? undefined : { order: sectionOrder.governance }}
-        className={cn(activePersona === 'editor' && 'border-t border-border/70 pt-4')}
+        className={cn(activePersona === 'editor' && 'border-t border-border/70 pt-6')}
       >
       {activePersona !== 'editor' && <hr className="my-6 border-border" />}
 
