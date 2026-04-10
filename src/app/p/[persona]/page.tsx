@@ -6,7 +6,6 @@ import { usePersonaStore } from "@/stores/personaStore";
 import { ThemedLogoGif } from "@/components/themed-logo-gif";
 import {
   isValidPersona,
-  PERSONA_DEFAULTS,
   type Persona,
 } from "@/lib/persona";
 
@@ -32,13 +31,8 @@ export default function PersonaRedirectPage() {
     }
 
     // Save persona to store
-    setPersona(personaParam as Persona);
-
-    // Get default route for this persona
-    const defaultRoute = PERSONA_DEFAULTS[personaParam as Persona];
-
-    // Redirect to persona default
-    router.push(defaultRoute);
+    setPersona(personaParam as Persona, { redirect: false });
+    router.push("/");
   }, [isHydrated, params.persona, router, setPersona]);
 
   if (error) {

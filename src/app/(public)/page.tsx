@@ -1167,7 +1167,7 @@ export default function EIPsHomePage() {
           client.standards.getMonthlyDelta({ monthYear: currentMonthYear }),
           client.analytics.getMonthlyEditorLeaderboard({ monthYear: currentMonthYear, limit: 50 }),
           client.analytics.getRecentChanges({ limit: 8 }),
-          client.analytics.getRecentEditorActivity({ limit: 5, onlyOpenPRs: false }),
+          client.analytics.getRecentEditorActivity({ limit: 40, onlyOpenPRs: false }),
         ]);
         if (!cancelled) {
           setFebDelta(deltaRes.items);
@@ -1194,10 +1194,11 @@ export default function EIPsHomePage() {
           setFebEditors(merged);
           setMonthlyLeaderboardUpdatedAt(editorRes.updatedAt);
           setRecentChanges(recentRes as typeof recentChanges);
-          const canonicalEditorSet = new Set(CANONICAL_EIP_EDITORS.map((editor) => editor.toLowerCase()));
-          setRecentEditorActivities(
-            editorActivityRes.filter((item) => canonicalEditorSet.has(item.editor.toLowerCase()))
+          const leaderboardEditorSet = new Set(merged.map((row) => row.actor.toLowerCase()));
+          const matchedActivities = editorActivityRes.filter((item) =>
+            leaderboardEditorSet.has(item.editor.toLowerCase())
           );
+          setRecentEditorActivities(matchedActivities.slice(0, 8));
         }
       } catch (err) {
         console.error('Failed to load homepage widgets:', err);
@@ -3390,6 +3391,7 @@ export default function EIPsHomePage() {
                 {recentEditorActivities.length}
               </span>
             </div>
+            <p className="mb-2 text-[11px] text-muted-foreground">Ranked by editor actions this month (open + closed PRs).</p>
             <div className="space-y-2">
               {widgetsLoading && recentEditorActivities.length === 0 ? (
                 Array.from({ length: 6 }).map((_, i) => (
@@ -3401,7 +3403,7 @@ export default function EIPsHomePage() {
                 ))
               ) : recentEditorActivities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No recent editor activity found right now.
+                  No editor activities found for this month.
                 </p>
               ) : (
                 recentEditorActivities.slice(0, 5).map((item, idx) => (
@@ -3417,7 +3419,7 @@ export default function EIPsHomePage() {
                         <Image src={editorAvatar(item.editor)} alt={item.editor} width={28} height={28} className="h-full w-full object-cover" />
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium text-foreground">{item.editor}</p>
+                        <p className="truncate text-xs font-medium text-foreground">#{idx + 1} {item.editor}</p>
                         <p className="text-[11px] text-muted-foreground">
                           {formatEditorAction(item.eventType)} · {new Date(item.actedAt).toLocaleString()}
                         </p>

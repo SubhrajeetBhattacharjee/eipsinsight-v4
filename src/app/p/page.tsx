@@ -10,7 +10,6 @@ import { ThemedLogoGif } from "@/components/themed-logo-gif";
 import {
   PERSONAS,
   PERSONA_LIST,
-  PERSONA_DEFAULTS,
   type Persona,
 } from "@/lib/persona";
 
@@ -30,11 +29,8 @@ export default function PersonaOnboardingPage() {
     if (!selectedPersona) return;
 
     setIsNavigating(true);
-    setPersona(selectedPersona);
-
-    // Navigate to persona default route
-    const defaultRoute = PERSONA_DEFAULTS[selectedPersona];
-    router.push(defaultRoute);
+    setPersona(selectedPersona, { redirect: false });
+    router.push("/");
   };
 
   // Wait for hydration to avoid flash
@@ -180,7 +176,7 @@ export default function PersonaOnboardingPage() {
                     {persona.description}
                   </p>
                   <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary">
-                    Opens {PERSONA_DEFAULTS[personaId]}
+                    Opens Home
                     <ArrowRight className="h-3 w-3 transition group-hover:translate-x-0.5" />
                   </div>
                 </div>
@@ -243,7 +239,7 @@ export default function PersonaOnboardingPage() {
             <button
               onClick={() => {
                 // Set default persona (newcomer) and mark as onboarded
-                setPersona("newcomer");
+                setPersona("newcomer", { redirect: false });
                 router.push("/");
               }}
               disabled={isNavigating}
