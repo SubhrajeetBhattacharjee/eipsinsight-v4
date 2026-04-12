@@ -238,8 +238,8 @@ export default function PersonaOnboardingPage() {
             <div className="h-px w-12 bg-border" />
             <button
               onClick={() => {
-                // Set default persona (newcomer) and mark as onboarded
-                setPersona("newcomer", { redirect: false });
+                // Set default persona and mark as onboarded
+                setPersona("developer", { redirect: false });
                 router.push("/");
               }}
               disabled={isNavigating}

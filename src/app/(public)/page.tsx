@@ -673,7 +673,7 @@ export default function EIPsHomePage() {
   const { resolvedTheme } = useTheme();
   const personaFromStore = useEffectivePersona();
   const personaHydrated = useIsHydrated();
-  const activePersona: HomePersona = (personaHydrated ? personaFromStore : 'newcomer') as HomePersona;
+  const activePersona: HomePersona = (personaHydrated ? personaFromStore : 'developer') as HomePersona;
   const isDark = resolvedTheme === 'dark';
   const [dimension, setDimension] = useState<Dimension>('status');
   const [sortBy, setSortBy] = useState<SortBy>('updated_at');
