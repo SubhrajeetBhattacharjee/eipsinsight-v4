@@ -190,7 +190,6 @@ const sidebarSections: SidebarSection[] = [
         items: [
           { title: "Overview", href: "/tools" },
           { title: "EIP Builder", href: "/tools/eip-builder" },
-          { title: "Dependencies", href: "/tools/dependencies" },
           { title: "Timeline", href: "/tools/timeline" },
         ],
       },

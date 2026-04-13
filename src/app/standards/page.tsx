@@ -178,6 +178,7 @@ const CATEGORY_COLOR_MAP: Record<string, string> = {
   ERC: "#34d399",
   Informational: "#a78bfa",
   Meta: "#9f7aea",
+  RIP: "#fbbf24",
   Other: "#94a3b8",
 };
 
@@ -190,6 +191,12 @@ const CATEGORY_COLORS = [
   "#9f7aea",
   "#94a3b8",
 ];
+
+// Normalize category names for display
+const normalizeCategoryName = (category: string): string => {
+  if (category.toLowerCase() === "rip") return "RIP";
+  return category;
+};
 
 // ──────── Page Content ────────
 function StandardsPageContent() {
@@ -275,7 +282,7 @@ function StandardsPageContent() {
   const repoParam = repo === "all" ? undefined : repo;
   const isRIP = repo === "rips";
 
-  // Reset sort to valid value when switching to/from RIPs
+  // Reset sort to valid value when switching to/from RIP
   React.useEffect(() => {
     if (isRIP) {
       // Valid RIP sortBy values: number, title, status, author, created_at, last_commit, commits
@@ -581,6 +588,7 @@ function StandardsPageContent() {
       const low = s.toLowerCase();
       if (low === "erc" || low === "ercs") return "ERC";
       if (low === "eip" || low === "eips") return "EIP";
+      if (low === "rip" || low === "rips") return "RIP";
       if (low === "core") return "Core";
       if (low === "interface") return "Interface";
       if (low === "networking") return "Networking";
@@ -814,7 +822,7 @@ function StandardsPageContent() {
               { value: "all", label: "All Standards" },
               { value: "eips", label: "EIPs" },
               { value: "ercs", label: "ERCs" },
-              { value: "rips", label: "RIPs" },
+              { value: "rips", label: "RIP" },
             ] as const
           ).map((tab) => (
             <button
@@ -980,7 +988,7 @@ function StandardsPageContent() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search RIPs by number, title, or author..."
+              placeholder="Search RIP by number, title, or author..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -1002,13 +1010,13 @@ function StandardsPageContent() {
               <div id="standards-kpis" className="scroll-mt-24">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KPICard
-                  label="Total RIPs"
+                  label="Total RIP"
                   value={ripKpis.total}
                   icon={<FileText className="h-6 w-6 text-primary" />}
                   color="cyan"
                 />
                 <KPICard
-                  label="Active RIPs"
+                  label="Active RIP"
                   value={ripKpis.active}
                   icon={<CheckCircle2 className="h-6 w-6 text-emerald-400" />}
                   color="emerald"
@@ -1069,7 +1077,7 @@ function StandardsPageContent() {
               </div>
             ) : null}
 
-            {/* ────── Repo Intro (EIPs / ERCs / RIPs) ────── */}
+            {/* ────── Repo Intro (EIPs / ERCs / RIP) ────── */}
             {!isRIP && repo !== "all" && (
               <div id="repo-intro" className="rounded-xl border border-border bg-card/60 p-4 shadow-sm scroll-mt-24">
                 <div className="flex items-center justify-between mb-2">
@@ -1078,7 +1086,7 @@ function StandardsPageContent() {
                       ? "Ethereum Improvement Proposals (EIPs)"
                       : repo === "ercs"
                         ? "Ethereum Request for Comment (ERCs)"
-                        : "Rollup Improvement Proposals (RIPs)"}
+                        : "Rollup Improvement Proposals (RIP)"}
                   </h3>
                 </div>
                 <p className="text-sm text-muted-foreground mb-4">

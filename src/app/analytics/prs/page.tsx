@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import ReactECharts from "echarts-for-react";
@@ -12,7 +12,6 @@ import {
   ArrowUpRight,
   AlertCircle,
   Download,
-  Clock,
   Activity,
   Layers,
   BarChart3,
@@ -131,10 +130,20 @@ const GOVERNANCE_COLORS: Record<string, string> = {
   Uncategorized: "#64748B",
 };
 
-function getMonthWindow(range: TimeRange): { from?: string; to?: string } {
+function getMonthWindow(
+  range: TimeRange,
+  customFromMonth?: string,
+  customToMonth?: string,
+): { from?: string; to?: string } {
   const now = new Date();
   const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   if (range === "all") return { from: undefined, to: undefined };
+  if (range === "custom") {
+    return {
+      from: customFromMonth || undefined,
+      to: customToMonth || undefined,
+    };
+  }
   const monthsBack = range === "this_month" ? 1 : range === "7d" ? 1 : range === "30d" ? 3 : range === "90d" ? 6 : 12;
   const fromDate = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1), 1);
   const from = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, "0")}`;
@@ -189,7 +198,7 @@ function GraphFooter({ nextUpdateAt }: { nextUpdateAt: Date }) {
 export default function PRsAnalyticsPage() {
   const searchParams = useSearchParams();
   const highlightedPr = Number(searchParams.get("pr") ?? NaN);
-  const { timeRange, repoFilter } = useAnalytics();
+  const { timeRange, repoFilter, customFromMonth, customToMonth } = useAnalytics();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -210,6 +219,9 @@ export default function PRsAnalyticsPage() {
   const [govWaitStatesByMonth, setGovWaitStatesByMonth] = useState<Array<{ month: string; rows: GovernanceWaitState[] }>>([]);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [trendFromMonth, setTrendFromMonth] = useState<string | null>(null);
+  const [trendToMonth, setTrendToMonth] = useState<string | null>(null);
+  const [exportingReports, setExportingReports] = useState(false);
   const [crossTabMode, setCrossTabMode] = useState<CrossTabMode>("process_x_state");
   const [openPRDistributionMode, setOpenPRDistributionMode] = useState<OpenPRDistributionMode>("process");
   const awaitedHelpText =
@@ -222,7 +234,7 @@ export default function PRsAnalyticsPage() {
       setLoading(true);
       setError(null);
       try {
-        const { from, to } = getMonthWindow(timeRange as TimeRange);
+        const { from, to } = getMonthWindow(timeRange as TimeRange, customFromMonth, customToMonth);
         const now = new Date();
         const contextMonth =
           selectedMonth ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -290,7 +302,7 @@ export default function PRsAnalyticsPage() {
       }
     };
     fetchData();
-  }, [timeRange, repoFilter, repoParam, selectedMonth]);
+  }, [timeRange, repoFilter, repoParam, selectedMonth, customFromMonth, customToMonth]);
 
   useEffect(() => {
     if (!selectedMonth && monthlySeries.length > 0) {
@@ -298,8 +310,27 @@ export default function PRsAnalyticsPage() {
     }
   }, [monthlySeries, selectedMonth]);
 
+  useEffect(() => {
+    if (monthlySeries.length === 0) {
+      setTrendFromMonth(null);
+      setTrendToMonth(null);
+      return;
+    }
+    const first = monthlySeries[0].month;
+    const last = monthlySeries[monthlySeries.length - 1].month;
+    setTrendFromMonth((prev) => prev ?? first);
+    setTrendToMonth((prev) => prev ?? last);
+  }, [monthlySeries]);
+
+  const rangeMonths = useMemo(() => {
+    if (!monthlySeries.length) return [];
+    const from = trendFromMonth ?? monthlySeries[0].month;
+    const to = trendToMonth ?? monthlySeries[monthlySeries.length - 1].month;
+    return monthlySeries.filter((row) => row.month >= from && row.month <= to);
+  }, [monthlySeries, trendFromMonth, trendToMonth]);
+
   const monthlyOption = useMemo(() => {
-    const months = monthlySeries.map((m) => m.month);
+    const months = rangeMonths.map((m) => m.month);
     return {
       backgroundColor: "transparent",
       tooltip: { trigger: "axis" },
@@ -336,13 +367,13 @@ export default function PRsAnalyticsPage() {
         },
       ],
       series: [
-        { name: "Created", type: "bar", data: monthlySeries.map((m) => m.created), itemStyle: { color: "#60A5FA", borderRadius: [6, 6, 0, 0] } },
-        { name: "Merged", type: "bar", data: monthlySeries.map((m) => m.merged), itemStyle: { color: "#34D399", borderRadius: [6, 6, 0, 0] } },
-        { name: "Closed", type: "bar", data: monthlySeries.map((m) => m.closed), itemStyle: { color: "#F59E0B", borderRadius: [6, 6, 0, 0] } },
-        { name: "Open EOM", type: "line", smooth: true, symbol: "circle", symbolSize: 6, data: monthlySeries.map((m) => m.openAtMonthEnd), lineStyle: { width: 2.5, color: "#A78BFA" }, itemStyle: { color: "#A78BFA" } },
+        { name: "Created", type: "bar", data: rangeMonths.map((m) => m.created), itemStyle: { color: "#60A5FA", borderRadius: [6, 6, 0, 0] } },
+        { name: "Merged", type: "bar", data: rangeMonths.map((m) => m.merged), itemStyle: { color: "#34D399", borderRadius: [6, 6, 0, 0] } },
+        { name: "Closed", type: "bar", data: rangeMonths.map((m) => m.closed), itemStyle: { color: "#F59E0B", borderRadius: [6, 6, 0, 0] } },
+        { name: "Open EOM", type: "line", smooth: true, symbol: "circle", symbolSize: 6, data: rangeMonths.map((m) => m.openAtMonthEnd), lineStyle: { width: 2.5, color: "#A78BFA" }, itemStyle: { color: "#A78BFA" } },
       ],
     };
-  }, [monthlySeries]);
+  }, [rangeMonths]);
 
   const monthContext = selectedMonth || heroMonth?.month || "Latest";
   const nextUpdateAt = useMemo(() => new Date(dataUpdatedAt.getTime() + 24 * 60 * 60 * 1000), [dataUpdatedAt]);
@@ -448,7 +479,7 @@ export default function PRsAnalyticsPage() {
         itemStyle: { color: GOVERNANCE_COLORS[state] || "#64748B" },
       })),
     };
-  }, [govWaitStatesByMonth, monthContext, monthlySeries, openPRDistributionMode, processCategoriesByMonth]);
+  }, [govWaitStatesByMonth, monthlySeries, openPRDistributionMode, processCategoriesByMonth]);
 
   const labelDistributionOption = useMemo(() => {
     const topLabels = labelStats.slice(0, 12);
@@ -535,81 +566,120 @@ export default function PRsAnalyticsPage() {
 
   const totalOpen = openSummary?.totalOpen ?? 0;
 
-  const downloadReports = () => {
-    const generatedAt = new Date();
-    const metadata = {
-      report_name: "PR Analytics Detailed Report",
-      generated_at: generatedAt.toISOString(),
+  const downloadObjectRowsCsv = useCallback(
+    (rows: Array<Record<string, string | number | null>>, filename: string) => {
+      if (!rows.length) return;
+      const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r))));
+      const escapeCsv = (value: unknown) => `"${String(value ?? "").replaceAll(`"`, `""`)}"`;
+      const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => escapeCsv(r[h])).join(","))].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    [],
+  );
+
+  const downloadOpenPRsDetailedCSV = useCallback(() => {
+    const generatedAt = new Date().toISOString();
+    const rows: Array<Record<string, string | number | null>> = openPRs.map((pr) => ({
+      report_section: "eip_open_prs",
+      generated_at: generatedAt,
       repo_filter: repoFilter,
       time_range: timeRange,
       month_context: monthContext,
-    };
-
-    const rows: Array<Record<string, string | number | null>> = [];
-
-    monthlySeries.forEach((m) =>
-      rows.push({
-        section: "monthly_activity",
-        ...metadata,
-        month: m.month,
-        created: m.created,
-        merged: m.merged,
-        closed: m.closed,
-        open_at_month_end: m.openAtMonthEnd,
-      }),
+      pr_number: pr.prNumber,
+      repo: pr.repo,
+      title: pr.title,
+      author: pr.author,
+      governance_state: pr.governanceState,
+      waiting_since: pr.waitingSince,
+      last_event_type: pr.lastEventType,
+      linked_eips: pr.linkedEIPs,
+      created_at: pr.createdAt,
+      metric_definition: "Open PR snapshot row shown in the EIP Open PRs table",
+    }));
+    downloadObjectRowsCsv(
+      rows,
+      `eip-open-prs-detailed-${repoFilter}-${monthContext}-${new Date().toISOString().slice(0, 10)}.csv`,
     );
+  }, [downloadObjectRowsCsv, monthContext, openPRs, repoFilter, timeRange]);
 
-    processCategories.forEach((p) =>
-      rows.push({
-        section: "open_pr_process_classification",
-        ...metadata,
-        category: p.category,
-        count: p.count,
-      }),
+  const downloadCategoryBreakdownDetailedCSV = useCallback(() => {
+    const generatedAt = new Date().toISOString();
+    const summaryProcessRows: Array<Record<string, string | number | null>> = processCategories.map((row) => ({
+      report_section: "category_breakdown_process_summary",
+      generated_at: generatedAt,
+      repo_filter: repoFilter,
+      time_range: timeRange,
+      month_context: monthContext,
+      process_category: row.category,
+      count: row.count,
+      metric_definition: "Open PR count by process category for selected context month",
+    }));
+    const summaryStateRows: Array<Record<string, string | number | null>> = govWaitStates.map((row) => ({
+      report_section: "category_breakdown_participant_summary",
+      generated_at: generatedAt,
+      repo_filter: repoFilter,
+      time_range: timeRange,
+      month_context: monthContext,
+      participant_state: row.state,
+      participant_label: row.label,
+      count: row.count,
+      median_wait_days: row.medianWaitDays,
+      oldest_pr_number: row.oldestPRNumber,
+      oldest_wait_days: row.oldestWaitDays,
+      metric_definition: "Open PR count by participant/governance waiting state for selected context month",
+    }));
+    const matrixRows: Array<Record<string, string | number | null>> = crossTabData.flatMap((row) =>
+      govWaitStates.map((state) => ({
+        report_section: "category_breakdown_estimated_matrix",
+        generated_at: generatedAt,
+        repo_filter: repoFilter,
+        time_range: timeRange,
+        month_context: monthContext,
+        process_category: String(row.process),
+        participant_state: state.state,
+        participant_label: state.label,
+        estimated_count: Number(row[state.state] || 0),
+        metric_definition: "Estimated cross-tab cell derived from process and participant totals (backend exact cross-tab pending)",
+      })),
     );
-
-    govWaitStates.forEach((g) =>
-      rows.push({
-        section: "governance_waiting_state",
-        ...metadata,
-        state: g.state,
-        label: g.label,
-        count: g.count,
-        median_wait_days: g.medianWaitDays,
-        oldest_pr_number: g.oldestPRNumber,
-        oldest_wait_days: g.oldestWaitDays,
-      }),
+    downloadObjectRowsCsv(
+      [...summaryProcessRows, ...summaryStateRows, ...matrixRows],
+      `category-breakdown-detailed-${repoFilter}-${monthContext}-${new Date().toISOString().slice(0, 10)}.csv`,
     );
+  }, [crossTabData, downloadObjectRowsCsv, govWaitStates, monthContext, processCategories, repoFilter, timeRange]);
 
-    openPRs.forEach((pr) =>
-      rows.push({
-        section: "open_pr_rows",
-        ...metadata,
-        pr_number: pr.prNumber,
-        repo: pr.repo,
-        title: pr.title,
-        author: pr.author,
-        governance_state: pr.governanceState,
-        waiting_since: pr.waitingSince,
-        last_event_type: pr.lastEventType,
-        linked_eips: pr.linkedEIPs,
-        created_at: pr.createdAt,
-      }),
-    );
-
-    const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r))));
-    const escapeCsv = (value: unknown) => `"${String(value ?? "").replaceAll(`"`, `""`)}"`;
-    const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => escapeCsv(r[h])).join(","))].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `pr-analytics-reports-${repoFilter}-${monthContext}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  const downloadReports = async () => {
+    try {
+      setExportingReports(true);
+      const result = await client.analytics.exportPRAnalyticsDetailedCSV({
+        repo: repoParam,
+        fromMonth: trendFromMonth ?? undefined,
+        toMonth: trendToMonth ?? undefined,
+        contextMonth: selectedMonth ?? undefined,
+      });
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export PR analytics detailed report:", err);
+      setError("Failed to export PR report. Please try again.");
+    } finally {
+      setExportingReports(false);
+    }
   };
 
   useAnalyticsExport(() => {
@@ -668,10 +738,11 @@ export default function PRsAnalyticsPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={downloadReports}
+              disabled={exportingReports}
               className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
             >
-              <Download className="h-3.5 w-3.5" />
-              Download Reports
+              {exportingReports ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              {exportingReports ? "Exporting..." : "Download Reports"}
             </button>
             <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">Context: {monthContext}</span>
             <button
@@ -684,6 +755,63 @@ export default function PRsAnalyticsPage() {
           </div>
         }
       >
+        {monthlySeries.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">Range:</span>
+            <select
+              value={trendFromMonth ?? ""}
+              onChange={(e) => {
+                const nextFrom = e.target.value;
+                setTrendFromMonth(nextFrom);
+                if (trendToMonth && nextFrom > trendToMonth) setTrendToMonth(nextFrom);
+              }}
+              className="h-8 rounded-md border border-border bg-muted/40 px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              {monthlySeries.map((m) => (
+                <option key={`from-${m.month}`} value={m.month}>
+                  {m.month}
+                </option>
+              ))}
+            </select>
+            <span className="text-muted-foreground">to</span>
+            <select
+              value={trendToMonth ?? ""}
+              onChange={(e) => {
+                const nextTo = e.target.value;
+                setTrendToMonth(nextTo);
+                if (trendFromMonth && nextTo < trendFromMonth) setTrendFromMonth(nextTo);
+              }}
+              className="h-8 rounded-md border border-border bg-muted/40 px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              {monthlySeries.map((m) => (
+                <option key={`to-${m.month}`} value={m.month}>
+                  {m.month}
+                </option>
+              ))}
+            </select>
+            <span className="text-muted-foreground">Context month:</span>
+            <select
+              value={selectedMonth ?? ""}
+              onChange={(e) => setSelectedMonth(e.target.value || null)}
+              className="h-8 rounded-md border border-border bg-muted/40 px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              {monthlySeries.map((m) => (
+                <option key={`ctx-${m.month}`} value={m.month}>
+                  {m.month}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                setTrendFromMonth(monthlySeries[0]?.month ?? null);
+                setTrendToMonth(monthlySeries[monthlySeries.length - 1]?.month ?? null);
+              }}
+              className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-foreground hover:bg-muted/60"
+            >
+              Full Range
+            </button>
+          </div>
+        )}
         {monthlySeries.length === 0 ? (
           <p className="text-sm text-muted-foreground">No monthly data available.</p>
         ) : (
@@ -768,19 +896,28 @@ export default function PRsAnalyticsPage() {
         title="Category breakdown"
         icon={<Users className="h-4 w-4" />}
         action={
-          <div className="inline-flex rounded-md border border-border bg-muted/60 p-0.5 text-xs">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setCrossTabMode("process_x_state")}
-              className={cn("rounded px-2 py-1", crossTabMode === "process_x_state" ? "bg-card text-foreground" : "text-muted-foreground")}
+              onClick={downloadCategoryBreakdownDetailedCSV}
+              className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
             >
-              X: Process
+              <Download className="h-3.5 w-3.5" />
+              Download CSV
             </button>
-            <button
-              onClick={() => setCrossTabMode("state_x_process")}
-              className={cn("rounded px-2 py-1", crossTabMode === "state_x_process" ? "bg-card text-foreground" : "text-muted-foreground")}
-            >
-              X: Participants
-            </button>
+            <div className="inline-flex rounded-md border border-border bg-muted/60 p-0.5 text-xs">
+              <button
+                onClick={() => setCrossTabMode("process_x_state")}
+                className={cn("rounded px-2 py-1", crossTabMode === "process_x_state" ? "bg-card text-foreground" : "text-muted-foreground")}
+              >
+                X: Process
+              </button>
+              <button
+                onClick={() => setCrossTabMode("state_x_process")}
+                className={cn("rounded px-2 py-1", crossTabMode === "state_x_process" ? "bg-card text-foreground" : "text-muted-foreground")}
+              >
+                X: Participants
+              </button>
+            </div>
           </div>
         }
       >
@@ -878,7 +1015,20 @@ export default function PRsAnalyticsPage() {
         </div>
       </details>
 
-      <Section id="open-prs-section" title="Open PRs" icon={<GitPullRequest className="h-4 w-4" />}>
+      <Section
+        id="open-prs-section"
+        title="Open PRs"
+        icon={<GitPullRequest className="h-4 w-4" />}
+        action={
+          <button
+            onClick={downloadOpenPRsDetailedCSV}
+            className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download CSV
+          </button>
+        }
+      >
         <p className="mb-3 text-xs text-muted-foreground">Snapshot of currently open pull requests in selected repository scope.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
