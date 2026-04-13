@@ -207,9 +207,8 @@ const termsSections: LegalSection[] = [
         <p>If you have legal or service questions related to these Terms, contact us at:</p>
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <p className="text-sm font-medium text-foreground">
-            Email:{' '}
-            <a href="mailto:legal@eipsinsight.com" className="text-primary hover:text-primary/80">
-              legal@eipsinsight.com
+            <a href="mailto:team@avarch.com" className="text-primary hover:text-primary/80">
+              team@avarch.com
             </a>
           </p>
         </div>

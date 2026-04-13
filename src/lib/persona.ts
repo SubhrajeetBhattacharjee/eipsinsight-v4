@@ -185,12 +185,12 @@ export const PERSONA_NAV_ORDER: Record<Persona, string[]> = {
 export const PERSONA_LIST: Persona[] = [
   "developer",
   "editor",
-  "builder",
-  "newcomer",
+  // "builder",   // Disabled for now (TBD: re-enable when persona flow is implemented)
+  // "newcomer",  // Disabled for now (TBD: re-enable when persona flow is implemented)
 ];
 
 // Default persona for new users
-export const DEFAULT_PERSONA: Persona = "newcomer";
+export const DEFAULT_PERSONA: Persona = "developer";
 
 // =============================================================================
 // Persona-specific Configuration for Pages and Features

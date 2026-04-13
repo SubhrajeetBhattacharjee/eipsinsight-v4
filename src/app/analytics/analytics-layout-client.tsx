@@ -53,9 +53,13 @@ interface AnalyticsContextValue {
   timeRange: TimeRange;
   repoFilter: RepoFilter;
   snapshotMode: SnapshotMode;
+  customFromMonth: string;
+  customToMonth: string;
   setTimeRange: (range: TimeRange) => void;
   setRepoFilter: (repo: RepoFilter) => void;
   setSnapshotMode: (mode: SnapshotMode) => void;
+  setCustomFromMonth: (month: string) => void;
+  setCustomToMonth: (month: string) => void;
   exportData: (format: "csv" | "json") => void;
 }
 
@@ -152,6 +156,12 @@ function AnalyticsLayoutInner({
   const [snapshotMode, setSnapshotModeState] = useState<SnapshotMode>(
     (searchParams.get("snapshot") as SnapshotMode) || "live"
   );
+  const [customFromMonth, setCustomFromMonthState] = useState<string>(
+    searchParams.get("fromMonth") || ""
+  );
+  const [customToMonth, setCustomToMonthState] = useState<string>(
+    searchParams.get("toMonth") || ""
+  );
 
   const setTimeRange = useCallback((range: TimeRange) => {
     setTimeRangeState(range);
@@ -161,6 +171,22 @@ function AnalyticsLayoutInner({
     } else {
       params.set("range", range);
     }
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [searchParams, router, pathname]);
+
+  const setCustomFromMonth = useCallback((month: string) => {
+    setCustomFromMonthState(month);
+    const params = new URLSearchParams(searchParams.toString());
+    if (!month) params.delete("fromMonth");
+    else params.set("fromMonth", month);
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [searchParams, router, pathname]);
+
+  const setCustomToMonth = useCallback((month: string) => {
+    setCustomToMonthState(month);
+    const params = new URLSearchParams(searchParams.toString());
+    if (!month) params.delete("toMonth");
+    else params.set("toMonth", month);
     router.replace(`${pathname}?${params.toString()}`);
   }, [searchParams, router, pathname]);
 
@@ -202,12 +228,28 @@ function AnalyticsLayoutInner({
       timeRange,
       repoFilter,
       snapshotMode,
+      customFromMonth,
+      customToMonth,
       setTimeRange,
       setRepoFilter,
       setSnapshotMode,
+      setCustomFromMonth,
+      setCustomToMonth,
       exportData,
     }),
-    [timeRange, repoFilter, snapshotMode, setTimeRange, setRepoFilter, setSnapshotMode, exportData]
+    [
+      timeRange,
+      repoFilter,
+      snapshotMode,
+      customFromMonth,
+      customToMonth,
+      setTimeRange,
+      setRepoFilter,
+      setSnapshotMode,
+      setCustomFromMonth,
+      setCustomToMonth,
+      exportData,
+    ]
   );
 
   const pageTitle = useMemo(() => {
@@ -265,6 +307,27 @@ function AnalyticsLayoutInner({
                     ))}
                   </select>
                 </div>
+
+                {timeRange === "custom" && (
+                  <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/60 p-1.5">
+                    <input
+                      type="month"
+                      value={customFromMonth}
+                      onChange={(e) => setCustomFromMonth(e.target.value)}
+                      className="h-7 rounded-md border border-border/70 bg-background/60 px-2 text-xs text-foreground outline-none"
+                      aria-label="Custom range start month"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <input
+                      type="month"
+                      value={customToMonth}
+                      min={customFromMonth || undefined}
+                      onChange={(e) => setCustomToMonth(e.target.value)}
+                      className="h-7 rounded-md border border-border/70 bg-background/60 px-2 text-xs text-foreground outline-none"
+                      aria-label="Custom range end month"
+                    />
+                  </div>
+                )}
 
                 {/* Repo Filter */}
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/60 p-1.5">

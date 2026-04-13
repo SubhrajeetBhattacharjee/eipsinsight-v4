@@ -795,17 +795,27 @@ const getEditorsLeaderboardCached = unstable_cache(
           AND pe.pr_number > 0
           AND pe.event_type NOT IN ('subscribed', 'mentioned', 'referenced')
       ),
+      deduped_events AS (
+        SELECT
+          actor,
+          pr_number,
+          repository_id,
+          event_type,
+          date_trunc('second', occurred_at) AS occurred_at
+        FROM raw_events
+        GROUP BY actor, pr_number, repository_id, event_type, date_trunc('second', occurred_at)
+      ),
       editor_activity AS (
         SELECT actor, pr_number, repository_id, event_type, occurred_at
-        FROM raw_events
+        FROM deduped_events
         WHERE ($2::text IS NULL OR occurred_at >= $2::timestamp)
-          AND ($3::text IS NULL OR occurred_at <= $3::timestamp)
+          AND ($3::text IS NULL OR occurred_at < (($3::date + INTERVAL '1 day')::timestamp))
       ),
       by_actor AS (
         SELECT
           actor,
           COUNT(*)::bigint AS total_actions,
-          COUNT(DISTINCT pr_number)::bigint AS prs_touched,
+          COUNT(DISTINCT CONCAT(repository_id::text, ':', pr_number::text))::bigint AS prs_touched,
           COUNT(*) FILTER (WHERE event_type IN ('reviewed', 'approved', 'changes_requested'))::bigint AS reviews,
           COUNT(*) FILTER (WHERE event_type IN ('commented', 'issue_comment', 'review_comment'))::bigint AS comments,
           MAX(occurred_at) AS latest_occurred_at
@@ -2143,6 +2153,215 @@ export const analyticsProcedures = {
         lastEventType: r.last_event_type,
         linkedEIPs: r.linked_eips ?? null,
       }));
+    }),
+
+  exportPRAnalyticsDetailedCSV: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      fromMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+      toMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+      contextMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const fromMonth = input.fromMonth ?? null;
+      const toMonth = input.toMonth ?? null;
+      const contextMonth = input.contextMonth ?? null;
+
+      const monthly = await getPRMonthlyActivityCached(input.repo ?? null, fromMonth, toMonth);
+
+      const detailRows = await prisma.$queryRawUnsafe<Array<{
+        pr_number: number;
+        repo: string;
+        title: string | null;
+        author: string | null;
+        state: string | null;
+        created_at: Date | null;
+        merged_at: Date | null;
+        closed_at: Date | null;
+        governance_state: string | null;
+        waiting_since: Date | null;
+        linked_eips: string | null;
+        created_in_window: boolean;
+        merged_in_window: boolean;
+        closed_unmerged_in_window: boolean;
+        open_in_context_month: boolean;
+      }>>(
+        `
+        WITH bounds AS (
+          SELECT
+            CASE WHEN $2::text IS NULL THEN NULL ELSE TO_DATE($2 || '-01', 'YYYY-MM-DD')::timestamp END AS from_ts,
+            CASE WHEN $3::text IS NULL THEN NULL ELSE (TO_DATE($3 || '-01', 'YYYY-MM-DD') + INTERVAL '1 month')::timestamp END AS to_exclusive_ts
+        ),
+        context AS (
+          SELECT
+            CASE
+              WHEN $4::text IS NULL THEN NULL
+              WHEN $4::text = TO_CHAR(CURRENT_DATE, 'YYYY-MM') THEN NOW()::timestamp
+              ELSE (TO_DATE($4 || '-01', 'YYYY-MM-DD') + INTERVAL '1 month' - INTERVAL '1 second')::timestamp
+            END AS snapshot_ts
+        )
+        SELECT
+          pr.pr_number,
+          r.name AS repo,
+          pr.title,
+          pr.author,
+          pr.state,
+          pr.created_at,
+          pr.merged_at,
+          pr.closed_at,
+          CASE
+            WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
+            WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
+            WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
+            ELSE COALESCE(gs.subcategory, 'Uncategorized')
+          END AS governance_state,
+          gs.waiting_since,
+          (SELECT STRING_AGG(pre.eip_number::text, '|')
+           FROM pull_request_eips pre
+           WHERE pre.pr_number = pr.pr_number
+             AND pre.repository_id = pr.repository_id) AS linked_eips,
+          (
+            (SELECT from_ts FROM bounds) IS NULL
+            OR (
+              pr.created_at >= (SELECT from_ts FROM bounds)
+              AND ((SELECT to_exclusive_ts FROM bounds) IS NULL OR pr.created_at < (SELECT to_exclusive_ts FROM bounds))
+            )
+          ) AS created_in_window,
+          (
+            pr.merged_at IS NOT NULL
+            AND ((SELECT from_ts FROM bounds) IS NULL OR pr.merged_at >= (SELECT from_ts FROM bounds))
+            AND ((SELECT to_exclusive_ts FROM bounds) IS NULL OR pr.merged_at < (SELECT to_exclusive_ts FROM bounds))
+          ) AS merged_in_window,
+          (
+            pr.closed_at IS NOT NULL
+            AND pr.merged_at IS NULL
+            AND ((SELECT from_ts FROM bounds) IS NULL OR pr.closed_at >= (SELECT from_ts FROM bounds))
+            AND ((SELECT to_exclusive_ts FROM bounds) IS NULL OR pr.closed_at < (SELECT to_exclusive_ts FROM bounds))
+          ) AS closed_unmerged_in_window,
+          (
+            (SELECT snapshot_ts FROM context) IS NOT NULL
+            AND pr.created_at <= (SELECT snapshot_ts FROM context)
+            AND (pr.merged_at IS NULL OR pr.merged_at > (SELECT snapshot_ts FROM context))
+            AND (pr.closed_at IS NULL OR pr.closed_at > (SELECT snapshot_ts FROM context))
+          ) AS open_in_context_month
+        FROM pull_requests pr
+        JOIN repositories r ON r.id = pr.repository_id
+        LEFT JOIN pr_governance_state gs
+          ON gs.pr_number = pr.pr_number
+         AND gs.repository_id = pr.repository_id
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND (
+            ((SELECT from_ts FROM bounds) IS NULL AND (SELECT to_exclusive_ts FROM bounds) IS NULL)
+            OR (
+              pr.created_at >= COALESCE((SELECT from_ts FROM bounds), pr.created_at)
+              AND pr.created_at < COALESCE((SELECT to_exclusive_ts FROM bounds), pr.created_at + INTERVAL '1 second')
+            )
+            OR (
+              pr.merged_at IS NOT NULL
+              AND pr.merged_at >= COALESCE((SELECT from_ts FROM bounds), pr.merged_at)
+              AND pr.merged_at < COALESCE((SELECT to_exclusive_ts FROM bounds), pr.merged_at + INTERVAL '1 second')
+            )
+            OR (
+              pr.closed_at IS NOT NULL
+              AND pr.closed_at >= COALESCE((SELECT from_ts FROM bounds), pr.closed_at)
+              AND pr.closed_at < COALESCE((SELECT to_exclusive_ts FROM bounds), pr.closed_at + INTERVAL '1 second')
+            )
+          )
+        ORDER BY COALESCE(pr.closed_at, pr.merged_at, pr.created_at) DESC, pr.pr_number DESC
+        LIMIT 10000
+        `,
+        input.repo ?? null,
+        fromMonth,
+        toMonth,
+        contextMonth
+      );
+
+      const escapeCsv = (value: string | number | null | undefined | boolean) =>
+        `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+      const summaryHeader = [
+        'record_type',
+        'repo_filter',
+        'from_month',
+        'to_month',
+        'context_month',
+        'month',
+        'created',
+        'merged',
+        'closed_unmerged',
+        'open_at_month_end',
+        'metric_definition',
+      ].join(',');
+      const summaryBody = monthly.map((row) =>
+        [
+          'summary',
+          escapeCsv(input.repo ?? 'all'),
+          escapeCsv(fromMonth ?? ''),
+          escapeCsv(toMonth ?? ''),
+          escapeCsv(contextMonth ?? ''),
+          escapeCsv(row.month),
+          row.created,
+          row.merged,
+          row.closed,
+          row.openAtMonthEnd,
+          escapeCsv('Monthly PR activity counts used in the open PR trend chart'),
+        ].join(',')
+      );
+
+      const detailHeader = [
+        'record_type',
+        'repo_filter',
+        'from_month',
+        'to_month',
+        'context_month',
+        'pr_number',
+        'repo',
+        'title',
+        'author',
+        'state',
+        'created_at_utc',
+        'merged_at_utc',
+        'closed_at_utc',
+        'governance_state',
+        'waiting_since_utc',
+        'linked_eips',
+        'created_in_window',
+        'merged_in_window',
+        'closed_unmerged_in_window',
+        'open_in_context_month',
+        'metric_definition',
+      ].join(',');
+      const detailBody = detailRows.map((row) =>
+        [
+          'detail',
+          escapeCsv(input.repo ?? 'all'),
+          escapeCsv(fromMonth ?? ''),
+          escapeCsv(toMonth ?? ''),
+          escapeCsv(contextMonth ?? ''),
+          row.pr_number,
+          escapeCsv(row.repo),
+          escapeCsv(row.title),
+          escapeCsv(row.author),
+          escapeCsv(row.state),
+          escapeCsv(row.created_at?.toISOString() ?? ''),
+          escapeCsv(row.merged_at?.toISOString() ?? ''),
+          escapeCsv(row.closed_at?.toISOString() ?? ''),
+          escapeCsv(row.governance_state),
+          escapeCsv(row.waiting_since?.toISOString() ?? ''),
+          escapeCsv(row.linked_eips),
+          escapeCsv(row.created_in_window),
+          escapeCsv(row.merged_in_window),
+          escapeCsv(row.closed_unmerged_in_window),
+          escapeCsv(row.open_in_context_month),
+          escapeCsv('PR-level metadata row aligned to selected report window'),
+        ].join(',')
+      );
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      return {
+        csv: [summaryHeader, ...summaryBody, '', detailHeader, ...detailBody].join('\n'),
+        filename: `pr-analytics-detailed-${input.repo ?? 'all'}-${fromMonth ?? 'all'}-${toMonth ?? 'all'}-${stamp}.csv`,
+      };
     }),
 
   // PR detail page payload (legacy parity route support)
@@ -4730,6 +4949,8 @@ export const analyticsProcedures = {
     .input(z.object({
       repo: z.enum(['eips', 'ercs', 'rips']).optional(),
       months: z.number().optional().default(12),
+      from: z.string().optional(),
+      to: z.string().optional(),
     }))
     .handler(async ({ input }) => {
       const results = await prisma.$queryRawUnsafe<Array<{
@@ -4740,7 +4961,7 @@ export const analyticsProcedures = {
         `
         WITH editor_map AS (
           SELECT canonical, actor_lc
-          FROM UNNEST($3::text[], $4::text[]) AS x(canonical, actor_lc)
+          FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
         ),
         raw_events AS (
           SELECT
@@ -4776,12 +4997,19 @@ export const analyticsProcedures = {
           COUNT(*)::bigint as count
         FROM deduped_events de
         LEFT JOIN repositories r ON r.id = de.repository_id
-        WHERE de.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
-          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND ($2::text IS NULL OR de.occurred_at >= $2::timestamp)
+          AND ($3::text IS NULL OR de.occurred_at < (($3::date + INTERVAL '1 day')::timestamp))
+          AND (
+            ($2::text IS NOT NULL OR $3::text IS NOT NULL)
+            OR de.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $4)
+          )
         GROUP BY date_trunc('month', de.occurred_at), de.actor
         ORDER BY month ASC, count DESC
       `,
         input.repo ?? null,
+        input.from ?? null,
+        input.to ?? null,
         (input.months || 12) - 1,
         Array.from(CANONICAL_EIP_EDITORS),
         CANONICAL_EIP_EDITOR_LOWER
@@ -4814,6 +5042,8 @@ export const analyticsProcedures = {
     .input(z.object({
       repo: z.enum(['eips', 'ercs', 'rips']).optional(),
       months: z.number().optional().default(12),
+      from: z.string().optional(),
+      to: z.string().optional(),
     }))
     .handler(async ({ input }) => {
       const results = await prisma.$queryRawUnsafe<Array<{
@@ -4824,7 +5054,7 @@ export const analyticsProcedures = {
         `
         WITH editor_map AS (
           SELECT canonical, actor_lc
-          FROM UNNEST($3::text[], $4::text[]) AS x(canonical, actor_lc)
+          FROM UNNEST($5::text[], $6::text[]) AS x(canonical, actor_lc)
         ),
         raw_reviews AS (
           SELECT
@@ -4860,12 +5090,19 @@ export const analyticsProcedures = {
           COUNT(DISTINCT CONCAT(dr.repository_id::text, ':', dr.pr_number::text))::bigint as count
         FROM deduped_reviews dr
         LEFT JOIN repositories r ON r.id = dr.repository_id
-        WHERE dr.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
-          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND ($2::text IS NULL OR dr.occurred_at >= $2::timestamp)
+          AND ($3::text IS NULL OR dr.occurred_at < (($3::date + INTERVAL '1 day')::timestamp))
+          AND (
+            ($2::text IS NOT NULL OR $3::text IS NOT NULL)
+            OR dr.occurred_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $4)
+          )
         GROUP BY date_trunc('month', dr.occurred_at), dr.actor
         ORDER BY month ASC, count DESC
       `,
         input.repo ?? null,
+        input.from ?? null,
+        input.to ?? null,
         (input.months || 12) - 1,
         Array.from(CANONICAL_EIP_EDITORS),
         CANONICAL_EIP_EDITOR_LOWER
@@ -5110,6 +5347,285 @@ export const analyticsProcedures = {
     .handler(async ({ input }) => {
       const monthsParam = input.months || 12;
       return getEIPThroughputCached(input.repo ?? null, monthsParam);
+    }),
+
+  exportEIPStatusTransitionsDetailedCSV: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }))
+    .handler(async ({ input }) => {
+      const from = input.from ?? null;
+      const to = input.to ?? null;
+
+      const summary = await prisma.$queryRawUnsafe<Array<{
+        from_status: string;
+        to_status: string;
+        count: bigint;
+      }>>(
+        `
+        SELECT
+          se.from_status,
+          se.to_status,
+          COUNT(*)::bigint AS count
+        FROM eip_status_events se
+        LEFT JOIN repositories r ON r.id = se.repository_id
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND ($2::date IS NULL OR se.changed_at >= $2)
+          AND ($3::date IS NULL OR se.changed_at <= $3)
+          AND se.from_status IS NOT NULL
+          AND se.to_status IS NOT NULL
+        GROUP BY se.from_status, se.to_status
+        ORDER BY count DESC, se.from_status ASC, se.to_status ASC
+        `,
+        input.repo ?? null,
+        from,
+        to
+      );
+
+      const details = await prisma.$queryRawUnsafe<Array<{
+        eip_number: number;
+        title: string | null;
+        author: string | null;
+        category: string | null;
+        repository: string | null;
+        from_status: string;
+        to_status: string;
+        changed_at: Date;
+        pr_number: number | null;
+      }>>(
+        `
+        SELECT
+          e.eip_number,
+          e.title,
+          e.author,
+          COALESCE(NULLIF(snap.category, ''), NULLIF(snap.type, ''), 'Other') AS category,
+          COALESCE(r.name, 'ethereum/EIPs') AS repository,
+          se.from_status,
+          se.to_status,
+          se.changed_at,
+          se.pr_number
+        FROM eip_status_events se
+        JOIN eips e ON e.id = se.eip_id
+        LEFT JOIN repositories r ON r.id = se.repository_id
+        LEFT JOIN LATERAL (
+          SELECT s1.type, s1.category
+          FROM eip_snapshots s1
+          WHERE s1.eip_id = se.eip_id
+            AND (se.repository_id IS NULL OR s1.repository_id = se.repository_id)
+          ORDER BY s1.updated_at DESC NULLS LAST
+          LIMIT 1
+        ) snap ON TRUE
+        WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND ($2::date IS NULL OR se.changed_at >= $2)
+          AND ($3::date IS NULL OR se.changed_at <= $3)
+          AND se.from_status IS NOT NULL
+          AND se.to_status IS NOT NULL
+        ORDER BY se.changed_at DESC, e.eip_number DESC
+        `,
+        input.repo ?? null,
+        from,
+        to
+      );
+
+      const escapeCsv = (value: string | number | null | undefined) =>
+        `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+      const totalTransitions = summary.reduce((sum, row) => sum + Number(row.count), 0);
+      const summaryHeader = [
+        'record_type',
+        'repo_filter',
+        'from_date',
+        'to_date',
+        'from_status',
+        'to_status',
+        'transition_count',
+        'share_percent',
+        'metric_definition',
+      ].join(',');
+      const summaryBody = summary.map((row) => {
+        const count = Number(row.count);
+        const pct = totalTransitions > 0 ? ((count * 100) / totalTransitions).toFixed(2) : '0.00';
+        return [
+          'summary',
+          escapeCsv(input.repo ?? 'all'),
+          escapeCsv(from ?? ''),
+          escapeCsv(to ?? ''),
+          escapeCsv(row.from_status),
+          escapeCsv(row.to_status),
+          count,
+          pct,
+          escapeCsv('Number of status transition events matching this from→to pair'),
+        ].join(',');
+      });
+
+      const detailsHeader = [
+        'record_type',
+        'repo_filter',
+        'proposal_number',
+        'title',
+        'author',
+        'category',
+        'repository',
+        'from_status',
+        'to_status',
+        'changed_at_utc',
+        'pr_number',
+        'metric_definition',
+      ].join(',');
+      const detailsBody = details.map((row) => [
+        'detail',
+        escapeCsv(input.repo ?? 'all'),
+        row.eip_number,
+        escapeCsv(row.title),
+        escapeCsv(row.author),
+        escapeCsv(row.category),
+        escapeCsv(row.repository),
+        escapeCsv(row.from_status),
+        escapeCsv(row.to_status),
+        escapeCsv(row.changed_at.toISOString()),
+        row.pr_number ?? '',
+        escapeCsv('Event-level row contributing to status transition flow counts'),
+      ].join(','));
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      return {
+        csv: [summaryHeader, ...summaryBody, '', detailsHeader, ...detailsBody].join('\n'),
+        filename: `eip-status-transitions-detailed-${stamp}.csv`,
+      };
+    }),
+
+  exportEIPThroughputDetailedCSV: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      months: z.number().optional().default(12),
+    }))
+    .handler(async ({ input }) => {
+      const monthsParam = Math.max(1, input.months || 12);
+
+      const summary = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        status: string;
+        count: bigint;
+      }>>(
+        `
+        SELECT
+          TO_CHAR(date_trunc('month', se.changed_at), 'YYYY-MM') AS month,
+          se.to_status AS status,
+          COUNT(*)::bigint AS count
+        FROM eip_status_events se
+        LEFT JOIN repositories r ON r.id = se.repository_id
+        WHERE se.changed_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
+          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND se.to_status IN ('Draft', 'Review', 'Last Call', 'Final')
+        GROUP BY date_trunc('month', se.changed_at), se.to_status
+        ORDER BY month ASC, status ASC
+        `,
+        input.repo ?? null,
+        monthsParam - 1
+      );
+
+      const details = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        eip_number: number;
+        title: string | null;
+        author: string | null;
+        category: string | null;
+        repository: string | null;
+        to_status: string;
+        changed_at: Date;
+        pr_number: number | null;
+      }>>(
+        `
+        SELECT
+          TO_CHAR(date_trunc('month', se.changed_at), 'YYYY-MM') AS month,
+          e.eip_number,
+          e.title,
+          e.author,
+          COALESCE(NULLIF(snap.category, ''), NULLIF(snap.type, ''), 'Other') AS category,
+          COALESCE(r.name, 'ethereum/EIPs') AS repository,
+          se.to_status,
+          se.changed_at,
+          se.pr_number
+        FROM eip_status_events se
+        JOIN eips e ON e.id = se.eip_id
+        LEFT JOIN repositories r ON r.id = se.repository_id
+        LEFT JOIN LATERAL (
+          SELECT s1.type, s1.category
+          FROM eip_snapshots s1
+          WHERE s1.eip_id = se.eip_id
+            AND (se.repository_id IS NULL OR s1.repository_id = se.repository_id)
+          ORDER BY s1.updated_at DESC NULLS LAST
+          LIMIT 1
+        ) snap ON TRUE
+        WHERE se.changed_at >= date_trunc('month', NOW() - INTERVAL '1 month' * $2)
+          AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+          AND se.to_status IN ('Draft', 'Review', 'Last Call', 'Final')
+        ORDER BY se.changed_at DESC, e.eip_number DESC
+        `,
+        input.repo ?? null,
+        monthsParam - 1
+      );
+
+      const escapeCsv = (value: string | number | null | undefined) =>
+        `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+      const summaryHeader = [
+        'record_type',
+        'repo_filter',
+        'months_window',
+        'month',
+        'status',
+        'count',
+        'metric_definition',
+      ].join(',');
+      const summaryBody = summary.map((row) => [
+        'summary',
+        escapeCsv(input.repo ?? 'all'),
+        monthsParam,
+        escapeCsv(row.month),
+        escapeCsv(row.status),
+        Number(row.count),
+        escapeCsv('Number of status-change events to this status in the given month'),
+      ].join(','));
+
+      const detailsHeader = [
+        'record_type',
+        'repo_filter',
+        'months_window',
+        'month',
+        'proposal_number',
+        'title',
+        'author',
+        'category',
+        'repository',
+        'to_status',
+        'changed_at_utc',
+        'pr_number',
+        'metric_definition',
+      ].join(',');
+      const detailsBody = details.map((row) => [
+        'detail',
+        escapeCsv(input.repo ?? 'all'),
+        monthsParam,
+        escapeCsv(row.month),
+        row.eip_number,
+        escapeCsv(row.title),
+        escapeCsv(row.author),
+        escapeCsv(row.category),
+        escapeCsv(row.repository),
+        escapeCsv(row.to_status),
+        escapeCsv(row.changed_at.toISOString()),
+        row.pr_number ?? '',
+        escapeCsv('Event-level row contributing to monthly throughput counts'),
+      ].join(','));
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      return {
+        csv: [summaryHeader, ...summaryBody, '', detailsHeader, ...detailsBody].join('\n'),
+        filename: `eip-throughput-detailed-${stamp}.csv`,
+      };
     }),
 
   getEIPHeroKPIs: optionalAuthProcedure

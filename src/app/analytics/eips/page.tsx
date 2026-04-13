@@ -105,14 +105,23 @@ function downloadObjectCSV(rows: Array<Record<string, unknown>>, filename: strin
   downloadCSV(headers, dataRows, filename);
 }
 
-function CSVBtn({ onClick, label = "Download Reports" }: { onClick: () => void; label?: string }) {
+function CSVBtn({
+  onClick,
+  label = "Download Reports",
+  loading = false,
+}: {
+  onClick: () => void;
+  label?: string;
+  loading?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
-      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-3 text-sm text-primary transition-colors hover:border-primary/40 hover:bg-primary/15"
+      disabled={loading}
+      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-3 text-sm text-primary transition-colors hover:border-primary/40 hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
     >
-      <Download className="h-4 w-4" />
-      {label}
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+      {loading ? "Exporting..." : label}
     </button>
   );
 }
@@ -171,6 +180,16 @@ export default function EIPsAnalyticsPage() {
   const { timeRange, repoFilter } = useAnalytics();
   const { resolvedTheme } = useTheme();
   const repoParam = repoFilter === "all" ? undefined : repoFilter;
+  const throughputMonths =
+    timeRange === "7d"
+      ? 3
+      : timeRange === "30d"
+        ? 6
+        : timeRange === "90d"
+          ? 12
+          : timeRange === "1y"
+            ? 24
+            : 60;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +205,11 @@ export default function EIPsAnalyticsPage() {
     draftToFinalMedian?: number;
   } | null>(null);
   const [recentChanges, setRecentChanges] = useState<RecentChangeRow[]>([]);
+  const [exportingPipeline, setExportingPipeline] = useState(false);
+  const [exportingComposition, setExportingComposition] = useState(false);
+  const [exportingTransition, setExportingTransition] = useState(false);
+  const [exportingThroughput, setExportingThroughput] = useState(false);
+  const [exportingHeatmap, setExportingHeatmap] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -216,16 +240,7 @@ export default function EIPsAnalyticsPage() {
           client.analytics.getEIPStatusTransitions({ repo: repoParam }),
           client.analytics.getEIPThroughput({
             repo: repoParam,
-            months:
-              timeRange === "7d"
-                ? 3
-                : timeRange === "30d"
-                  ? 6
-                  : timeRange === "90d"
-                    ? 12
-                    : timeRange === "1y"
-                      ? 24
-                      : 60,
+            months: throughputMonths,
           }),
           client.analytics.getLifecycleData({ repo: repoParam }),
           client.analytics.getDecisionVelocity({ repo: repoParam }),
@@ -244,7 +259,7 @@ export default function EIPsAnalyticsPage() {
         setLoading(false);
       }
     })();
-  }, [repoParam, timeRange]);
+  }, [repoParam, timeRange, throughputMonths]);
 
   useAnalyticsExport(() => {
     const rows: Record<string, unknown>[] = [];
@@ -518,10 +533,20 @@ export default function EIPsAnalyticsPage() {
   }, [throughput]);
 
   const matrixData = useMemo(() => {
-    const categories = Array.from(new Set(crossTab.map((r) => r.category))).filter(Boolean).sort();
+    const filteredCrossTab =
+      repoFilter === "all"
+        ? crossTab
+        : crossTab.filter((row) =>
+            repoFilter === "eips"
+              ? row.repo === "EIPs"
+              : repoFilter === "ercs"
+                ? row.repo === "ERCs"
+                : row.repo === "RIPs",
+          );
+    const categories = Array.from(new Set(filteredCrossTab.map((r) => r.category))).filter(Boolean).sort();
     const heat = categories.flatMap((cat, y) =>
       STATUS_ORDER.map((status, x) => {
-        const value = crossTab
+        const value = filteredCrossTab
           .filter((r) => r.category === cat && r.status === status)
           .reduce((sum, r) => sum + r.count, 0);
         return [x, y, value];
@@ -529,7 +554,7 @@ export default function EIPsAnalyticsPage() {
     );
     const maxValue = Math.max(...heat.map((v) => Number(v[2])), 0);
     return { categories, heat, maxValue };
-  }, [crossTab]);
+  }, [crossTab, repoFilter]);
 
   const matrixOption = useMemo(() => {
     const isDark = resolvedTheme === "dark";
@@ -634,47 +659,125 @@ export default function EIPsAnalyticsPage() {
     [generatedAt, lastUpdatedAt, nextUpdateAt, repoFilter, timeRange],
   );
 
-  const exportCrossTab = useCallback(() => {
-    const categories = matrixData.categories;
-    const rows = categories.map((cat) => {
-      const counts = STATUS_ORDER.map((status) => {
-        return crossTab
-          .filter((r) => r.category === cat && r.status === status)
-          .reduce((sum, r) => sum + r.count, 0);
+  const getRepoSearchFilter = useCallback(() => {
+    if (repoFilter === "eips") return "ethereum/EIPs";
+    if (repoFilter === "ercs") return "ethereum/ERCs";
+    if (repoFilter === "rips") return "ethereum/RIPs";
+    return undefined;
+  }, [repoFilter]);
+
+  const downloadRawCSV = useCallback((csv: string, filename: string) => {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Report downloaded", { description: filename });
+  }, []);
+
+  const exportCrossTab = useCallback(async () => {
+    try {
+      setExportingHeatmap(true);
+      const lifecycleDetailed = await client.analytics.getLifecycleDetailed({ repo: repoParam });
+
+      const summaryRows = matrixData.categories.flatMap((category) =>
+        STATUS_ORDER.map((status) => {
+          const count = crossTab
+            .filter((r) => {
+              const repoMatch =
+                repoFilter === "all"
+                  ? true
+                  : repoFilter === "eips"
+                    ? r.repo === "EIPs"
+                    : repoFilter === "ercs"
+                      ? r.repo === "ERCs"
+                      : r.repo === "RIPs";
+              return repoMatch && r.category === category && r.status === status;
+            })
+            .reduce((sum, r) => sum + r.count, 0);
+          return {
+            record_type: "summary",
+            category,
+            status,
+            count,
+            metric_definition: "Number of proposals in this Category × Status cell",
+          };
+        }),
+      );
+
+      const detailRows = (lifecycleDetailed as Array<{
+        eip_number: number;
+        type: string;
+        title: string;
+        status: string;
+        category: string | null;
+        repository: string;
+        created_at: string | Date;
+      }>).map((row) => ({
+        record_type: "detail",
+        proposal_number: row.eip_number,
+        proposal_type: row.type ?? "EIP",
+        title: row.title ?? "",
+        status: row.status ?? "",
+        category: row.category ?? "",
+        repository: row.repository ?? "",
+        created_at_utc: row.created_at ? new Date(row.created_at).toISOString() : "",
+        metric_definition: "Proposal-level row used to build Category × Status heatmap counts",
+      }));
+
+      downloadObjectCSV(
+        withMeta("category_status_heatmap", [...summaryRows, ...detailRows]),
+        `eips-category-status-detailed-${new Date().toISOString().slice(0, 10)}.csv`,
+      );
+    } catch (err) {
+      console.error("Heatmap export failed:", err);
+      toast.error("Failed to export Category × Status Heatmap report");
+    } finally {
+      setExportingHeatmap(false);
+    }
+  }, [crossTab, matrixData.categories, repoFilter, repoParam, withMeta]);
+
+  const exportPipelineCSV = useCallback(async () => {
+    try {
+      setExportingPipeline(true);
+      const repoSearch = getRepoSearchFilter();
+      const result = await client.standards.exportUnifiedDetailedCSV({
+        dimension: "status",
+        columnSearch: {
+          github: repoSearch,
+        },
       });
-      return {
-        category: cat,
-        draft: counts[0],
-        review: counts[1],
-        last_call: counts[2],
-        final: counts[3],
-        living: counts[4],
-        stagnant: counts[5],
-        withdrawn: counts[6],
-        total: counts.reduce((a, b) => a + b, 0),
-      };
-    });
-    downloadObjectCSV(withMeta("category_status_heatmap", rows), `eips-category-status-${new Date().toISOString().slice(0, 10)}.csv`);
-  }, [crossTab, matrixData.categories, withMeta]);
+      downloadRawCSV(result.csv, result.filename.replace("unified-standards-status", "eips-pipeline-status-detailed"));
+    } catch (err) {
+      console.error("Pipeline export failed:", err);
+      toast.error("Failed to export Pipeline Status report");
+    } finally {
+      setExportingPipeline(false);
+    }
+  }, [downloadRawCSV, getRepoSearchFilter]);
 
-  const exportPipelineCSV = useCallback(() => {
-    const rows = STATUS_ORDER.map((status) => ({
-      status,
-      count: statusCountMap[status] || 0,
-      share_percent: total > 0 ? (((statusCountMap[status] || 0) / total) * 100).toFixed(2) : "0.00",
-    }));
-    downloadObjectCSV(withMeta("pipeline_status", rows), `eips-pipeline-status-${new Date().toISOString().slice(0, 10)}.csv`);
-  }, [statusCountMap, total, withMeta]);
-
-  const exportCompositionCSV = useCallback(() => {
-    const rows = catBreakdown.map((c) => ({
-      category: c.category,
-      count: c.count,
-      share_percent: total > 0 ? ((c.count / total) * 100).toFixed(2) : "0.00",
-      color: CAT_COLORS[c.category] || "",
-    }));
-    downloadObjectCSV(withMeta("proposal_composition", rows), `eips-proposal-composition-${new Date().toISOString().slice(0, 10)}.csv`);
-  }, [catBreakdown, total, withMeta]);
+  const exportCompositionCSV = useCallback(async () => {
+    try {
+      setExportingComposition(true);
+      const repoSearch = getRepoSearchFilter();
+      const result = await client.standards.exportUnifiedDetailedCSV({
+        dimension: "category",
+        columnSearch: {
+          github: repoSearch,
+        },
+      });
+      downloadRawCSV(result.csv, result.filename.replace("unified-standards-category", "eips-proposal-composition-detailed"));
+    } catch (err) {
+      console.error("Composition export failed:", err);
+      toast.error("Failed to export Proposal Composition report");
+    } finally {
+      setExportingComposition(false);
+    }
+  }, [downloadRawCSV, getRepoSearchFilter]);
 
   const exportLifecycleCSV = useCallback(() => {
     const rows = conversionRows.map((r) => ({
@@ -695,28 +798,42 @@ export default function EIPsAnalyticsPage() {
     downloadObjectCSV(withMeta("decision_speed", rows), `eips-decision-speed-${new Date().toISOString().slice(0, 10)}.csv`);
   }, [velocity?.transitions, withMeta]);
 
-  const exportTransitionCSV = useCallback(() => {
-    const rows = transitionFlows.map((t) => ({
-      from_status: t.from,
-      to_status: t.to,
-      transition_count: t.value,
-      flow_direction: "forward_only_for_sankey",
-    }));
-    downloadObjectCSV(withMeta("status_transition_flow", rows), `eips-transition-flow-${new Date().toISOString().slice(0, 10)}.csv`);
-  }, [transitionFlows, withMeta]);
+  const exportTransitionCSV = useCallback(async () => {
+    try {
+      setExportingTransition(true);
+      const result = await client.analytics.exportEIPStatusTransitionsDetailedCSV({
+        repo: repoParam,
+      });
+      downloadRawCSV(
+        result.csv,
+        result.filename.replace("eip-status-transitions-detailed", "eips-transition-flow-detailed"),
+      );
+    } catch (err) {
+      console.error("Transition export failed:", err);
+      toast.error("Failed to export Status Transition Flow report");
+    } finally {
+      setExportingTransition(false);
+    }
+  }, [downloadRawCSV, repoParam]);
 
-  const exportThroughputCSV = useCallback(() => {
-    const rows = throughput.map((r) => ({
-      month: String(r.month || ""),
-      draft: Number(r.draft || 0),
-      review: Number(r.review || 0),
-      last_call: Number(r.lastCall || 0),
-      final: Number(r.final || 0),
-      total_changes:
-        Number(r.draft || 0) + Number(r.review || 0) + Number(r.lastCall || 0) + Number(r.final || 0),
-    }));
-    downloadObjectCSV(withMeta("monthly_throughput", rows), `eips-monthly-throughput-${new Date().toISOString().slice(0, 10)}.csv`);
-  }, [throughput, withMeta]);
+  const exportThroughputCSV = useCallback(async () => {
+    try {
+      setExportingThroughput(true);
+      const result = await client.analytics.exportEIPThroughputDetailedCSV({
+        repo: repoParam,
+        months: throughputMonths,
+      });
+      downloadRawCSV(
+        result.csv,
+        result.filename.replace("eip-throughput-detailed", "eips-monthly-throughput-detailed"),
+      );
+    } catch (err) {
+      console.error("Throughput export failed:", err);
+      toast.error("Failed to export Monthly Governance Throughput report");
+    } finally {
+      setExportingThroughput(false);
+    }
+  }, [downloadRawCSV, repoParam, throughputMonths]);
 
   if (loading) {
     return (
@@ -774,7 +891,7 @@ export default function EIPsAnalyticsPage() {
         <Section
           title="Pipeline Status"
           icon={<TrendingUp className="h-4 w-4" />}
-          action={<CSVBtn onClick={exportPipelineCSV} label="Download Reports" />}
+          action={<CSVBtn onClick={exportPipelineCSV} label="Download Reports" loading={exportingPipeline} />}
         >
           <div className="relative h-[320px] w-full">
             <ReactECharts option={pipelineOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
@@ -792,7 +909,7 @@ export default function EIPsAnalyticsPage() {
         <Section
           title="Proposal Composition"
           icon={<Layers className="h-4 w-4" />}
-          action={<CSVBtn onClick={exportCompositionCSV} label="Download Reports" />}
+          action={<CSVBtn onClick={exportCompositionCSV} label="Download Reports" loading={exportingComposition} />}
         >
           <div className="relative h-[320px] w-full">
             <ReactECharts
@@ -810,7 +927,7 @@ export default function EIPsAnalyticsPage() {
       <Section
         title="Status Transition Flow"
         icon={<ArrowRight className="h-4 w-4" />}
-        action={<CSVBtn onClick={exportTransitionCSV} label="Download Reports" />}
+        action={<CSVBtn onClick={exportTransitionCSV} label="Download Reports" loading={exportingTransition} />}
       >
         {transitionFlows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No transition data available.</p>
@@ -826,7 +943,7 @@ export default function EIPsAnalyticsPage() {
       <Section
         title="Monthly Governance Throughput"
         icon={<Activity className="h-4 w-4" />}
-        action={<CSVBtn onClick={exportThroughputCSV} label="Download Reports" />}
+        action={<CSVBtn onClick={exportThroughputCSV} label="Download Reports" loading={exportingThroughput} />}
       >
         {throughput.length === 0 ? (
           <p className="text-sm text-muted-foreground">No monthly throughput available.</p>
@@ -842,7 +959,7 @@ export default function EIPsAnalyticsPage() {
       <Section
         title="Category × Status Heatmap"
         icon={<Layers className="h-4 w-4" />}
-        action={<CSVBtn onClick={exportCrossTab} label="Download Reports" />}
+        action={<CSVBtn onClick={exportCrossTab} label="Download Reports" loading={exportingHeatmap} />}
       >
         {matrixData.categories.length === 0 ? (
           <p className="text-sm text-muted-foreground">No category/status matrix data available.</p>

@@ -34,6 +34,7 @@
 | 2.3 | Clarify Analytics vs Insights boundaries in-page | P1 | 2h | Page intros/microcopy | Make “metrics vs interpretation” distinction explicit on landing sections. |
 | 2.4 | Add lifecycle-first mapping doc | P1 | 2h | `docs/` | Add “Idea → Draft → Review → Merge → Upgrade → Post-upgrade” mapping to product surfaces. |
 | 2.5 | Optional: lifecycle-first sidebar experiment | P2 | 6h | Nav model + docs | Prototype alternative information spine and compare against feature-first nav. |
+| 2.6 | Re-enable `builder` and `newcomer` personas (TBD) | P2 | 4h | `src/lib/persona.ts`, `src/app/p/page.tsx`, `src/app/(public)/page.tsx` | Disabled in: `PERSONA_LIST` + `DEFAULT_PERSONA` (`src/lib/persona.ts`), onboarding skip default (`src/app/p/page.tsx`), homepage hydration fallback persona (`src/app/(public)/page.tsx`). Reintroduce after dedicated UX/content pass and re-test persona switcher/onboarding/home sections. |
 
 ---
 
