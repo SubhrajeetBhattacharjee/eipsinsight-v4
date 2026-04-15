@@ -20,6 +20,7 @@ import {
   CircleHelp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CopyLinkButton } from "@/components/header";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InlineBrandLoader } from "@/components/inline-brand-loader";
@@ -164,9 +165,12 @@ function Section({ title, icon, children, action, className, id }: {
   return (
     <section id={id} className={cn("rounded-xl border border-border bg-card/60 p-5", className)}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <span className="text-primary">{icon}</span>
           <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">{title}</h2>
+          {id && (
+            <CopyLinkButton sectionId={id} className="h-7 w-7 rounded-md border border-border bg-muted/60 hover:border-primary/40 hover:bg-primary/10" />
+          )}
         </div>
         {action}
       </div>
@@ -729,6 +733,7 @@ export default function PRsAnalyticsPage() {
       </div>
 
       <Section
+        id="pr-trend"
         title="Open PR trend by month"
         icon={<BarChart3 className="h-4 w-4" />}
         action={
@@ -829,7 +834,7 @@ export default function PRsAnalyticsPage() {
         <GraphFooter nextUpdateAt={nextUpdateAt} />
       </Section>
 
-      <Section title="Label distribution" icon={<BarChart3 className="h-4 w-4" />}>
+      <Section id="pr-label-distribution" title="Label distribution" icon={<BarChart3 className="h-4 w-4" />}>
         {labelStats.length === 0 ? (
           <p className="text-sm text-muted-foreground">No label data available.</p>
         ) : (
@@ -840,7 +845,7 @@ export default function PRsAnalyticsPage() {
         <GraphFooter nextUpdateAt={nextUpdateAt} />
       </Section>
 
-      <Section title="EIP Open PRs" icon={<Layers className="h-4 w-4" />}>
+      <Section id="pr-eip-open" title="EIP Open PRs" icon={<Layers className="h-4 w-4" />}>
         <p className="mb-3 text-xs text-muted-foreground">
           Open PRs by Process type (Typo, NEW EIP, PR DRAFT) or by Participants status (Waiting on Editor, Awaited). Sum of bars = total open PRs for that month.
         </p>
@@ -890,6 +895,7 @@ export default function PRsAnalyticsPage() {
       </Section>
 
       <Section
+        id="pr-category-breakdown"
         title="Category breakdown"
         icon={<Users className="h-4 w-4" />}
         action={
