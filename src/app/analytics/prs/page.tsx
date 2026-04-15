@@ -20,6 +20,7 @@ import {
   CircleHelp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CopyLinkButton } from "@/components/header";
 import { LastUpdated } from "@/components/analytics/LastUpdated";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InlineBrandLoader } from "@/components/inline-brand-loader";
@@ -92,6 +93,8 @@ interface OpenPRRow {
   waitingSince: string | null;
   lastEventType: string | null;
   linkedEIPs: string | null;
+  labels: string[];
+  processType: string;
 }
 
 interface ProcessCategory {
@@ -162,9 +165,12 @@ function Section({ title, icon, children, action, className, id }: {
   return (
     <section id={id} className={cn("rounded-xl border border-border bg-card/60 p-5", className)}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <span className="text-primary">{icon}</span>
           <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">{title}</h2>
+          {id && (
+            <CopyLinkButton sectionId={id} className="h-7 w-7 rounded-md border border-border bg-muted/60 hover:border-primary/40 hover:bg-primary/10" />
+          )}
         </div>
         {action}
       </div>
@@ -216,6 +222,7 @@ export default function PRsAnalyticsPage() {
   const [openPRs, setOpenPRs] = useState<OpenPRRow[]>([]);
   const [processCategories, setProcessCategories] = useState<ProcessCategory[]>([]);
   const [govWaitStates, setGovWaitStates] = useState<GovernanceWaitState[]>([]);
+  const [crossTabRaw, setCrossTabRaw] = useState<Array<{ processType: string; govState: string; count: number }>>([]);
   const [processCategoriesByMonth, setProcessCategoriesByMonth] = useState<Array<{ month: string; rows: ProcessCategory[] }>>([]);
   const [govWaitStatesByMonth, setGovWaitStatesByMonth] = useState<Array<{ month: string; rows: GovernanceWaitState[] }>>([]);
 
@@ -267,23 +274,17 @@ export default function PRsAnalyticsPage() {
 
         const monthBuckets = monthly.map((m) => m.month);
 
-        const [tto, stale, procCat, govWait, processTimeline, participantTimeline] = await Promise.all([
+        const trendFrom = monthBuckets[0];
+        const trendTo = monthBuckets[monthBuckets.length - 1];
+
+        const [tto, stale, procCat, govWait, processTimeline, participantTimeline, crossTab] = await Promise.all([
           client.analytics.getPRTimeToOutcome({ repo: repoParam }),
           client.analytics.getPRStaleness({ repo: repoParam }),
           client.analytics.getPROpenClassification({ repo: repoParam, month: contextMonth }),
           client.analytics.getPRGovernanceWaitingState({ repo: repoParam, month: contextMonth }),
-          Promise.all(
-            monthBuckets.map(async (month) => ({
-              month,
-              rows: await client.analytics.getPROpenClassification({ repo: repoParam, month }),
-            })),
-          ),
-          Promise.all(
-            monthBuckets.map(async (month) => ({
-              month,
-              rows: await client.analytics.getPRGovernanceWaitingState({ repo: repoParam, month }),
-            })),
-          ),
+          client.analytics.getPROpenClassificationTimeline({ repo: repoParam, from: trendFrom, to: trendTo }),
+          client.analytics.getPRGovernanceWaitingStateTimeline({ repo: repoParam, from: trendFrom, to: trendTo }),
+          client.analytics.getPRProcessParticipantCrossTab({ repo: repoParam, month: contextMonth }),
         ]);
         setTimeToOutcome(tto);
         setStaleness(stale);
@@ -291,9 +292,10 @@ export default function PRsAnalyticsPage() {
         setGovWaitStates(govWait);
         setProcessCategoriesByMonth(processTimeline);
         setGovWaitStatesByMonth(participantTimeline);
+        setCrossTabRaw(crossTab);
 
-        const openExport = await client.analytics.getPROpenExport({ repo: repoParam });
-        setOpenPRs(openExport.slice(0, 100));
+        const openExport = await client.analytics.getPROpenExport({ repo: repoParam, month: contextMonth });
+        setOpenPRs(openExport);
         setDataUpdatedAt(new Date());
       } catch (err) {
         console.error("Failed to fetch PR analytics:", err);
@@ -509,22 +511,22 @@ export default function PRsAnalyticsPage() {
   }, [labelStats]);
 
   const crossTabData = useMemo(() => {
-    if (!processCategories.length || !govWaitStates.length) return [];
-    const govTotal = govWaitStates.reduce((a, b) => a + b.count, 0);
-    const procTotal = processCategories.reduce((a, b) => a + b.count, 0);
-    if (govTotal === 0 || procTotal === 0) return [];
-    return processCategories.map((proc) => {
-      const row: Record<string, number | string> = { process: proc.category };
-      const share = proc.count / procTotal;
-      govWaitStates.forEach((gov) => {
-        row[gov.state] = Math.round(gov.count * share);
+    if (!crossTabRaw.length) return [];
+    const processTypes = Array.from(new Set(crossTabRaw.map((r) => r.processType)));
+    return processTypes.map((proc) => {
+      const row: Record<string, number | string> = { process: proc };
+      crossTabRaw.filter((r) => r.processType === proc).forEach((r) => {
+        row[r.govState] = r.count;
       });
       return row;
     });
-  }, [processCategories, govWaitStates]);
+  }, [crossTabRaw]);
 
   const processParticipantOption = useMemo(() => {
     if (!crossTabData.length) return null;
+
+    const govStates = Array.from(new Set(crossTabRaw.map((r) => r.govState)));
+    const processTypes = crossTabData.map((r) => String(r.process));
 
     if (crossTabMode === "process_x_state") {
       return {
@@ -532,38 +534,37 @@ export default function PRsAnalyticsPage() {
         tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
         legend: { top: 0, textStyle: { color: "var(--muted-foreground)", fontSize: 11 } },
         grid: { top: 36, left: 36, right: 16, bottom: 24 },
-        xAxis: { type: "category", data: crossTabData.map((r) => String(r.process)), axisLabel: { color: "var(--muted-foreground)", fontSize: 11 } },
+        xAxis: { type: "category", data: processTypes, axisLabel: { color: "var(--muted-foreground)", fontSize: 11 } },
         yAxis: { type: "value", axisLabel: { color: "var(--muted-foreground)", fontSize: 11 }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } } },
-        series: govWaitStates.map((g) => ({
-          name: g.label,
+        series: govStates.map((state) => ({
+          name: state,
           type: "bar",
           stack: "total",
-          data: crossTabData.map((r) => Number(r[g.state] || 0)),
-          itemStyle: { color: GOVERNANCE_COLORS[g.state] || "#64748B" },
+          data: crossTabData.map((r) => Number(r[state] || 0)),
+          itemStyle: { color: GOVERNANCE_COLORS[state] || "#64748B" },
         })),
       };
     }
 
-    const states = govWaitStates.map((g) => g.state);
     return {
       backgroundColor: "transparent",
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
       legend: { top: 0, textStyle: { color: "var(--muted-foreground)", fontSize: 11 } },
       grid: { top: 36, left: 42, right: 16, bottom: 24 },
-      xAxis: { type: "category", data: govWaitStates.map((g) => g.label), axisLabel: { color: "var(--muted-foreground)", fontSize: 11, rotate: 12 } },
+      xAxis: { type: "category", data: govStates, axisLabel: { color: "var(--muted-foreground)", fontSize: 11, rotate: 12 } },
       yAxis: { type: "value", axisLabel: { color: "var(--muted-foreground)", fontSize: 11 }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } } },
-      series: processCategories.map((p) => ({
-        name: p.category,
+      series: processTypes.map((proc) => ({
+        name: proc,
         type: "bar",
         stack: "total",
-        data: states.map((s) => {
-          const row = crossTabData.find((r) => String(r.process) === p.category);
+        data: govStates.map((s) => {
+          const row = crossTabData.find((r) => String(r.process) === proc);
           return Number(row?.[s] || 0);
         }),
-        itemStyle: { color: PROCESS_COLORS[p.category] || "#94A3B8" },
+        itemStyle: { color: PROCESS_COLORS[proc] || "#94A3B8" },
       })),
     };
-  }, [crossTabData, crossTabMode, govWaitStates, processCategories]);
+  }, [crossTabData, crossTabMode, crossTabRaw]);
 
   const totalOpen = openSummary?.totalOpen ?? 0;
 
@@ -589,21 +590,20 @@ export default function PRsAnalyticsPage() {
   const downloadOpenPRsDetailedCSV = useCallback(() => {
     const generatedAt = new Date().toISOString();
     const rows: Array<Record<string, string | number | null>> = openPRs.map((pr) => ({
-      report_section: "eip_open_prs",
-      generated_at: generatedAt,
-      repo_filter: repoFilter,
-      time_range: timeRange,
-      month_context: monthContext,
       pr_number: pr.prNumber,
       repo: pr.repo,
       title: pr.title,
       author: pr.author,
+      process_type: pr.processType,
       governance_state: pr.governanceState,
-      waiting_since: pr.waitingSince,
-      last_event_type: pr.lastEventType,
+      labels: pr.labels.join("; "),
       linked_eips: pr.linkedEIPs,
       created_at: pr.createdAt,
-      metric_definition: "Open PR snapshot row shown in the EIP Open PRs table",
+      waiting_since: pr.waitingSince,
+      last_event_type: pr.lastEventType,
+      month_context: monthContext,
+      repo_filter: repoFilter,
+      generated_at: generatedAt,
     }));
     downloadObjectRowsCsv(
       rows,
@@ -733,6 +733,7 @@ export default function PRsAnalyticsPage() {
       </div>
 
       <Section
+        id="pr-trend"
         title="Open PR trend by month"
         icon={<BarChart3 className="h-4 w-4" />}
         action={
@@ -833,7 +834,7 @@ export default function PRsAnalyticsPage() {
         <GraphFooter nextUpdateAt={nextUpdateAt} />
       </Section>
 
-      <Section title="Label distribution" icon={<BarChart3 className="h-4 w-4" />}>
+      <Section id="pr-label-distribution" title="Label distribution" icon={<BarChart3 className="h-4 w-4" />}>
         {labelStats.length === 0 ? (
           <p className="text-sm text-muted-foreground">No label data available.</p>
         ) : (
@@ -844,7 +845,7 @@ export default function PRsAnalyticsPage() {
         <GraphFooter nextUpdateAt={nextUpdateAt} />
       </Section>
 
-      <Section title="EIP Open PRs" icon={<Layers className="h-4 w-4" />}>
+      <Section id="pr-eip-open" title="EIP Open PRs" icon={<Layers className="h-4 w-4" />}>
         <p className="mb-3 text-xs text-muted-foreground">
           Open PRs by Process type (Typo, NEW EIP, PR DRAFT) or by Participants status (Waiting on Editor, Awaited). Sum of bars = total open PRs for that month.
         </p>
@@ -894,6 +895,7 @@ export default function PRsAnalyticsPage() {
       </Section>
 
       <Section
+        id="pr-category-breakdown"
         title="Category breakdown"
         icon={<Users className="h-4 w-4" />}
         action={

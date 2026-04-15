@@ -1996,6 +1996,193 @@ export const analyticsProcedures = {
       return order.map(category => ({ category, count: byCat[category] ?? 0 }));
     }),
 
+  // Real cross-tab: process type × governance state per PR for a given month context
+  getPRProcessParticipantCrossTab: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        process_type: string;
+        gov_state: string;
+        count: bigint;
+      }>>(`
+        WITH month_ctx AS (
+          SELECT
+            $2::text AS month_key,
+            ($2::text || '-01')::date AS month_start,
+            (($2::text || '-01')::date + INTERVAL '1 month' - INTERVAL '1 day')::timestamp AS month_end
+        ),
+        snapshot_ctx AS (
+          SELECT
+            CASE
+              WHEN $2::text IS NULL THEN NOW()::timestamp
+              WHEN (SELECT month_key FROM month_ctx) = TO_CHAR(CURRENT_DATE, 'YYYY-MM') THEN NOW()::timestamp
+              ELSE (SELECT month_end FROM month_ctx)
+            END AS snapshot_ts
+        ),
+        open_prs AS (
+          SELECT pr.pr_number, pr.repository_id, pr.title, pr.labels, gs.category, gs.current_state, gs.subcategory
+          FROM pull_requests pr
+          JOIN repositories r ON pr.repository_id = r.id
+          LEFT JOIN pr_governance_state gs ON pr.pr_number = gs.pr_number AND pr.repository_id = gs.repository_id
+          CROSS JOIN snapshot_ctx sc
+          WHERE pr.created_at <= sc.snapshot_ts
+            AND (pr.merged_at IS NULL OR pr.merged_at > sc.snapshot_ts)
+            AND (pr.closed_at IS NULL OR pr.closed_at > sc.snapshot_ts)
+            AND ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        ),
+        classified AS (
+          SELECT pr_number, repository_id,
+            COALESCE(category, CASE
+              WHEN LOWER(COALESCE(title, '')) ~ 'typo|fix typo|editorial|grammar' THEN 'Typo'
+              WHEN COALESCE(labels, ARRAY[]::text[]) && ARRAY['c-status', 'c-update']::text[] THEN 'Status Change'
+              WHEN LOWER(COALESCE(title, '')) ~ 'status|draft|review|last call|final|withdrawn|stagnant|living|wip' THEN 'PR DRAFT'
+              ELSE 'Content Edit'
+            END) AS process_type,
+            COALESCE(
+              CASE WHEN subcategory IN ('Waiting on Editor', 'Waiting on Author', 'AWAITED') THEN subcategory END,
+              CASE
+                WHEN COALESCE(current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
+                WHEN COALESCE(current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
+                WHEN COALESCE(current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
+                ELSE 'Uncategorized'
+              END
+            ) AS gov_state
+          FROM open_prs
+        )
+        SELECT process_type, gov_state, COUNT(*)::bigint AS count
+        FROM classified
+        GROUP BY process_type, gov_state
+        ORDER BY process_type, count DESC
+      `, input.repo || null, input.month ?? null);
+
+      return results.map(r => ({
+        processType: r.process_type,
+        govState: r.gov_state,
+        count: Number(r.count),
+      }));
+    }),
+
+  // Batch: process classification counts for every month in [from, to] — replaces N individual calls
+  getPROpenClassificationTimeline: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        category: string;
+        count: bigint;
+      }>>(`
+        WITH months AS (
+          SELECT TO_CHAR(gs, 'YYYY-MM') AS month,
+                 (gs + INTERVAL '1 month' - INTERVAL '1 day')::timestamp AS snapshot_ts
+          FROM GENERATE_SERIES(
+            COALESCE($2::text || '-01', TO_CHAR(NOW() - INTERVAL '24 months', 'YYYY-MM-01'))::date,
+            COALESCE($3::text || '-01', TO_CHAR(NOW(), 'YYYY-MM-01'))::date,
+            '1 month'::interval
+          ) gs
+        ),
+        open_prs AS (
+          SELECT m.month,
+                 pr.id AS pr_id, pr.pr_number, pr.repository_id, pr.title, pr.labels, gs.category
+          FROM months m
+          JOIN pull_requests pr ON pr.created_at <= m.snapshot_ts
+            AND (pr.merged_at IS NULL OR pr.merged_at > m.snapshot_ts)
+            AND (pr.closed_at IS NULL OR pr.closed_at > m.snapshot_ts)
+          JOIN repositories r ON pr.repository_id = r.id
+          LEFT JOIN pr_governance_state gs ON pr.pr_number = gs.pr_number AND pr.repository_id = gs.repository_id
+          WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+        ),
+        classified AS (
+          SELECT month, pr_id,
+            COALESCE(category, CASE
+              WHEN LOWER(COALESCE(title, '')) ~ 'typo|fix typo|editorial|grammar' THEN 'Typo'
+              WHEN COALESCE(labels, ARRAY[]::text[]) && ARRAY['c-status', 'c-update']::text[] THEN 'Status Change'
+              WHEN LOWER(COALESCE(title, '')) ~ 'status|draft|review|last call|final|withdrawn|stagnant|living|wip' THEN 'PR DRAFT'
+              ELSE 'Content Edit'
+            END) AS category
+          FROM open_prs
+        )
+        SELECT month, category, COUNT(*)::bigint AS count
+        FROM classified
+        GROUP BY month, category
+        ORDER BY month, count DESC
+      `, input.repo || null, input.from ?? null, input.to ?? null);
+
+      const byMonth: Record<string, Array<{ category: string; count: number }>> = {};
+      const order = ['PR DRAFT', 'Typo', 'New EIP', 'Status Change', 'Website', 'Tooling', 'EIP-1', 'Content Edit'];
+      for (const r of results) {
+        if (!byMonth[r.month]) byMonth[r.month] = [];
+        byMonth[r.month].push({ category: r.category, count: Number(r.count) });
+      }
+      return Object.entries(byMonth).map(([month, rows]) => ({
+        month,
+        rows: order.map(cat => ({ category: cat, count: rows.find(r => r.category === cat)?.count ?? 0 })),
+      }));
+    }),
+
+  // Batch: governance waiting state counts for every month in [from, to] — replaces N individual calls
+  getPRGovernanceWaitingStateTimeline: optionalAuthProcedure
+    .input(z.object({
+      repo: z.enum(['eips', 'ercs', 'rips']).optional(),
+      from: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+      to: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    }))
+    .handler(async ({ input }) => {
+      const results = await prisma.$queryRawUnsafe<Array<{
+        month: string;
+        state: string;
+        count: bigint;
+      }>>(`
+        WITH months AS (
+          SELECT TO_CHAR(gs, 'YYYY-MM') AS month,
+                 (gs + INTERVAL '1 month' - INTERVAL '1 day')::timestamp AS snapshot_ts
+          FROM GENERATE_SERIES(
+            COALESCE($2::text || '-01', TO_CHAR(NOW() - INTERVAL '24 months', 'YYYY-MM-01'))::date,
+            COALESCE($3::text || '-01', TO_CHAR(NOW(), 'YYYY-MM-01'))::date,
+            '1 month'::interval
+          ) gs
+        ),
+        open_with_state AS (
+          SELECT m.month, pr.pr_number,
+                 COALESCE(
+                   CASE WHEN gs.subcategory IN ('Waiting on Editor', 'Waiting on Author', 'AWAITED') THEN gs.subcategory END,
+                   CASE
+                     WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
+                     WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
+                     WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
+                     ELSE NULL
+                   END
+                 ) AS state
+          FROM months m
+          JOIN pull_requests pr ON pr.created_at <= m.snapshot_ts
+            AND (pr.merged_at IS NULL OR pr.merged_at > m.snapshot_ts)
+            AND (pr.closed_at IS NULL OR pr.closed_at > m.snapshot_ts)
+          JOIN repositories r ON pr.repository_id = r.id
+          LEFT JOIN pr_governance_state gs ON pr.pr_number = gs.pr_number AND pr.repository_id = gs.repository_id
+          WHERE ($1::text IS NULL OR LOWER(SPLIT_PART(r.name, '/', 2)) = LOWER($1))
+            AND COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR','WAITING_EDITOR','WAITING_ON_AUTHOR','WAITING_AUTHOR','DRAFT','NO_STATE')
+        )
+        SELECT month, state, COUNT(*)::bigint AS count
+        FROM open_with_state
+        WHERE state IS NOT NULL
+        GROUP BY month, state
+        ORDER BY month, count DESC
+      `, input.repo || null, input.from ?? null, input.to ?? null);
+
+      const byMonth: Record<string, Array<{ state: string; label: string; count: number; medianWaitDays: null; oldestPRNumber: null; oldestWaitDays: null }>> = {};
+      for (const r of results) {
+        if (!byMonth[r.month]) byMonth[r.month] = [];
+        byMonth[r.month].push({ state: r.state, label: r.state, count: Number(r.count), medianWaitDays: null, oldestPRNumber: null, oldestWaitDays: null });
+      }
+      return Object.entries(byMonth).map(([month, rows]) => ({ month, rows }));
+    }),
+
   // Governance waiting state with median wait and oldest PR per bucket
   getPRGovernanceWaitingState: optionalAuthProcedure
     .input(z.object({
@@ -2028,11 +2215,15 @@ export const analyticsProcedures = {
         ),
         open_with_state AS (
           SELECT pr.pr_number, pr.repository_id, r.name AS repo_name,
-                 CASE
-                   WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
-                   WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
-                   WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
-                 END AS state,
+                 COALESCE(
+                   CASE WHEN gs.subcategory IN ('Waiting on Editor', 'Waiting on Author', 'AWAITED') THEN gs.subcategory END,
+                   CASE
+                     WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
+                     WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
+                     WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
+                     ELSE NULL
+                   END
+                 ) AS state,
                  gs.waiting_since,
                  sc.snapshot_ts
           FROM pull_requests pr
@@ -2105,6 +2296,8 @@ export const analyticsProcedures = {
         waiting_since: string | null;
         last_event_type: string | null;
         linked_eips: string | null;
+        labels: string[];
+        process_type: string;
       }>>(`
         WITH month_ctx AS (
           SELECT
@@ -2122,15 +2315,28 @@ export const analyticsProcedures = {
         )
         SELECT pr.pr_number, r.name AS repo, pr.title, pr.author,
                TO_CHAR(pr.created_at, 'YYYY-MM-DD') AS created_at,
-               CASE
-                 WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
-                 WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
-                 WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
-                 ELSE COALESCE(gs.subcategory, 'Uncategorized')
-               END AS state,
+               COALESCE(
+                 CASE WHEN gs.subcategory IN ('Waiting on Editor', 'Waiting on Author', 'AWAITED') THEN gs.subcategory END,
+                 CASE
+                   WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
+                   WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
+                   WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
+                   ELSE 'Uncategorized'
+                 END
+               ) AS state,
                TO_CHAR(gs.waiting_since, 'YYYY-MM-DD') AS waiting_since,
                COALESCE(gs.reason, gs.last_event_type) AS last_event_type,
-               (SELECT STRING_AGG(pre.eip_number::text, ',') FROM pull_request_eips pre WHERE pre.pr_number = pr.pr_number AND pre.repository_id = pr.repository_id) AS linked_eips
+               (SELECT STRING_AGG(pre.eip_number::text, ',') FROM pull_request_eips pre WHERE pre.pr_number = pr.pr_number AND pre.repository_id = pr.repository_id) AS linked_eips,
+               COALESCE(pr.labels, ARRAY[]::text[]) AS labels,
+               CASE
+                 WHEN LOWER(COALESCE(pr.title, '')) ~ 'typo|spelling|grammar|editorial' THEN 'Typo'
+                 WHEN pr.labels @> ARRAY['c-new']::text[] THEN 'New EIP'
+                 WHEN LOWER(COALESCE(pr.title, '')) ~ 'website|jekyll|_config' THEN 'Website'
+                 WHEN pr.labels && ARRAY['dependencies']::text[] OR LOWER(COALESCE(pr.title, '')) ~ '^bump ' THEN 'Tooling'
+                 WHEN pr.labels @> ARRAY['c-status']::text[] THEN 'Status Change'
+                 WHEN pr.labels @> ARRAY['c-update']::text[] THEN 'Content Edit'
+                 ELSE 'Other'
+               END AS process_type
         FROM pull_requests pr
         JOIN repositories r ON pr.repository_id = r.id
         LEFT JOIN pr_governance_state gs ON pr.pr_number = gs.pr_number AND pr.repository_id = gs.repository_id
@@ -2153,6 +2359,8 @@ export const analyticsProcedures = {
         waitingSince: r.waiting_since,
         lastEventType: r.last_event_type,
         linkedEIPs: r.linked_eips ?? null,
+        labels: Array.isArray(r.labels) ? r.labels : [],
+        processType: r.process_type,
       }));
     }),
 
@@ -2210,12 +2418,15 @@ export const analyticsProcedures = {
           pr.created_at,
           pr.merged_at,
           pr.closed_at,
-          CASE
-            WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
-            WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
-            WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
-            ELSE COALESCE(gs.subcategory, 'Uncategorized')
-          END AS governance_state,
+          COALESCE(
+            CASE WHEN gs.subcategory IN ('Waiting on Editor', 'Waiting on Author', 'AWAITED') THEN gs.subcategory END,
+            CASE
+              WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_EDITOR', 'WAITING_EDITOR') THEN 'Waiting on Editor'
+              WHEN COALESCE(gs.current_state, 'NO_STATE') IN ('WAITING_ON_AUTHOR', 'WAITING_AUTHOR') THEN 'Waiting on Author'
+              WHEN COALESCE(gs.current_state, 'NO_STATE') = 'DRAFT' THEN 'AWAITED'
+              ELSE 'Uncategorized'
+            END
+          ) AS governance_state,
           gs.waiting_since,
           (SELECT STRING_AGG(pre.eip_number::text, '|')
            FROM pull_request_eips pre
