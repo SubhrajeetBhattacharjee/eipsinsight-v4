@@ -64,6 +64,7 @@ type UnifiedEvent = {
   color: string;
   meta?: string;
   prNumber?: number;
+  repoSegment?: "eips" | "ercs" | "rips";
 };
 
 function parseDate(input: string | null | undefined): Date | null {
@@ -101,6 +102,13 @@ function daysBetween(a: string | null | undefined, b: string | null | undefined)
   const d2 = parseDate(b);
   if (!d1 || !d2) return null;
   return Math.max(0, Math.round((d2.getTime() - d1.getTime()) / 86400000));
+}
+
+function normalizeRepoSegment(repo: string | null | undefined): "eips" | "ercs" | "rips" {
+  const value = (repo || "").toLowerCase();
+  if (value.includes("erc")) return "ercs";
+  if (value.includes("rip")) return "rips";
+  return "eips";
 }
 
 function TimelineContent() {
@@ -180,6 +188,7 @@ function TimelineContent() {
         color: STATUS_COLORS[e.to] ?? "#94a3b8",
         meta: e.commitSha ? e.commitSha.slice(0, 8) : undefined,
         prNumber: e.prNumber ?? undefined,
+        repoSegment: normalizeRepoSegment(data.repo),
       });
     });
 
@@ -215,6 +224,7 @@ function TimelineContent() {
           color: "#38bdf8",
           meta: `${pr.commits} commits · ${pr.files} files`,
           prNumber: pr.prNumber,
+          repoSegment: normalizeRepoSegment(pr.repo),
         });
       }
       if (pr.mergedAt) {
@@ -225,11 +235,12 @@ function TimelineContent() {
           detail: pr.title || "Untitled PR",
           color: "#34d399",
           prNumber: pr.prNumber,
+          repoSegment: normalizeRepoSegment(pr.repo),
         });
       }
     });
 
-    return events.sort((a, b) => (parseDate(a.date)?.getTime() ?? 0) - (parseDate(b.date)?.getTime() ?? 0));
+    return events.sort((a, b) => (parseDate(b.date)?.getTime() ?? 0) - (parseDate(a.date)?.getTime() ?? 0));
   }, [data]);
 
   const summary = useMemo(() => {
@@ -431,7 +442,8 @@ function TimelineContent() {
                     timeline.map((event, idx) => {
                       const Icon = iconForEvent(event.type);
                       const prev = timeline[idx - 1];
-                      const elapsed = prev ? daysBetween(prev.date, event.date) : null;
+                      const elapsed = prev ? daysBetween(event.date, prev.date) : null;
+                      const prHref = event.prNumber ? `/pr/${event.repoSegment ?? normalizeRepoSegment(data.repo)}/${event.prNumber}` : null;
                       return (
                         <div key={`${event.type}-${event.date}-${idx}`} className="rounded-lg border border-border/70 bg-muted/25 p-3">
                           <div className="flex items-start gap-3">
@@ -441,8 +453,10 @@ function TimelineContent() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="text-sm font-medium text-foreground">{event.title}</p>
-                                {event.prNumber && (
-                                  <span className="text-xs text-primary">PR #{event.prNumber}</span>
+                                {event.prNumber && prHref && (
+                                  <Link href={prHref} className="text-xs text-primary hover:underline">
+                                    PR #{event.prNumber}
+                                  </Link>
                                 )}
                               </div>
                               <p className="mt-0.5 text-xs text-muted-foreground">{event.detail}</p>
@@ -487,15 +501,23 @@ function TimelineContent() {
                       {data.linkedPRs.map((pr) => (
                         <tr key={pr.prNumber} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
                           <td className="px-4 py-3">
-                            <a
-                              href={`https://github.com/${pr.repo}/pull/${pr.prNumber}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-primary hover:underline"
-                            >
-                              #{pr.prNumber}
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
+                            <div className="inline-flex items-center gap-2">
+                              <Link
+                                href={`/pr/${normalizeRepoSegment(pr.repo)}/${pr.prNumber}`}
+                                className="text-primary hover:underline"
+                              >
+                                #{pr.prNumber}
+                              </Link>
+                              <a
+                                href={`https://github.com/${pr.repo}/pull/${pr.prNumber}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-muted-foreground hover:text-foreground"
+                                aria-label={`Open PR #${pr.prNumber} on GitHub`}
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
                           </td>
                           <td className="max-w-[260px] truncate px-4 py-3 text-foreground/90">{pr.title ?? "—"}</td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">{pr.author ?? "—"}</td>

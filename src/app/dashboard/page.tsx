@@ -105,9 +105,24 @@ function Skeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-function MetricCell({ label, value, color, dot }: { label: string; value: number | string; color: string; dot?: string }) {
-  return (
-    <div className="flex flex-col items-center gap-1.5 px-5 py-4 transition-colors hover:bg-primary/10">
+function MetricCell({
+  label,
+  value,
+  color,
+  dot,
+  href,
+}: {
+  label: string;
+  value: number | string;
+  color: string;
+  dot?: string;
+  href?: string;
+}) {
+  const content = (
+    <div className={cn(
+      'flex flex-col items-center gap-1.5 px-5 py-4 transition-colors',
+      href ? 'hover:bg-primary/10 cursor-pointer' : 'hover:bg-primary/10'
+    )}>
       <span className={cn('text-lg font-bold tabular-nums', color)}>
         {typeof value === 'number' ? value.toLocaleString() : value}
       </span>
@@ -116,6 +131,13 @@ function MetricCell({ label, value, color, dot }: { label: string; value: number
         <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">{label}</span>
       </div>
     </div>
+  );
+
+  if (!href) return content;
+  return (
+    <Link href={href} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+      {content}
+    </Link>
   );
 }
 
@@ -236,15 +258,15 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="grid min-w-max grid-flow-col divide-x divide-border">
-              <MetricCell label="Total" value={kpis!.total} color="text-foreground" />
-              <MetricCell label="Draft" value={statusDist?.find(s => s.status === 'Draft')?.count ?? 0} color={STATUS_TEXT_COLORS.Draft} dot={STATUS_DOT_COLORS.Draft} />
-              <MetricCell label="Review" value={statusDist?.find(s => s.status === 'Review')?.count ?? 0} color={STATUS_TEXT_COLORS.Review} dot={STATUS_DOT_COLORS.Review} />
-              <MetricCell label="Last Call" value={statusDist?.find(s => s.status === 'Last Call')?.count ?? 0} color={STATUS_TEXT_COLORS['Last Call']} dot={STATUS_DOT_COLORS['Last Call']} />
-              <MetricCell label="Final" value={statusDist?.find(s => s.status === 'Final')?.count ?? 0} color={STATUS_TEXT_COLORS.Final} dot={STATUS_DOT_COLORS.Final} />
-              <MetricCell label="Living" value={statusDist?.find(s => s.status === 'Living')?.count ?? 0} color={STATUS_TEXT_COLORS.Living} dot={STATUS_DOT_COLORS.Living} />
-              <MetricCell label="Stagnant" value={statusDist?.find(s => s.status === 'Stagnant')?.count ?? 0} color={STATUS_TEXT_COLORS.Stagnant} dot={STATUS_DOT_COLORS.Stagnant} />
-              <MetricCell label="Withdrawn" value={statusDist?.find(s => s.status === 'Withdrawn')?.count ?? 0} color={STATUS_TEXT_COLORS.Withdrawn} dot={STATUS_DOT_COLORS.Withdrawn} />
-              <MetricCell label="RIPs" value={ripKpis?.total ?? 0} color="text-primary" dot="bg-primary" />
+              <MetricCell label="Total" value={kpis!.total} color="text-foreground" href="/standards?repo=all" />
+              <MetricCell label="Draft" value={statusDist?.find(s => s.status === 'Draft')?.count ?? 0} color={STATUS_TEXT_COLORS.Draft} dot={STATUS_DOT_COLORS.Draft} href="/explore/details/status/draft?view=table" />
+              <MetricCell label="Review" value={statusDist?.find(s => s.status === 'Review')?.count ?? 0} color={STATUS_TEXT_COLORS.Review} dot={STATUS_DOT_COLORS.Review} href="/explore/details/status/review?view=table" />
+              <MetricCell label="Last Call" value={statusDist?.find(s => s.status === 'Last Call')?.count ?? 0} color={STATUS_TEXT_COLORS['Last Call']} dot={STATUS_DOT_COLORS['Last Call']} href="/explore/details/status/last-call?view=table" />
+              <MetricCell label="Final" value={statusDist?.find(s => s.status === 'Final')?.count ?? 0} color={STATUS_TEXT_COLORS.Final} dot={STATUS_DOT_COLORS.Final} href="/explore/details/status/final?view=table" />
+              <MetricCell label="Living" value={statusDist?.find(s => s.status === 'Living')?.count ?? 0} color={STATUS_TEXT_COLORS.Living} dot={STATUS_DOT_COLORS.Living} href="/explore/details/status/living?view=table" />
+              <MetricCell label="Stagnant" value={statusDist?.find(s => s.status === 'Stagnant')?.count ?? 0} color={STATUS_TEXT_COLORS.Stagnant} dot={STATUS_DOT_COLORS.Stagnant} href="/explore/details/status/stagnant?view=table" />
+              <MetricCell label="Withdrawn" value={statusDist?.find(s => s.status === 'Withdrawn')?.count ?? 0} color={STATUS_TEXT_COLORS.Withdrawn} dot={STATUS_DOT_COLORS.Withdrawn} href="/explore/details/status/withdrawn?view=table" />
+              <MetricCell label="RIPs" value={ripKpis?.total ?? 0} color="text-primary" dot="bg-primary" href="/explore/details/repo/rips?view=table" />
             </div>
           )}
         </motion.div>

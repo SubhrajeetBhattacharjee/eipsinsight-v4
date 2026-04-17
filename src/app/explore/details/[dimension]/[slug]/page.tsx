@@ -167,6 +167,7 @@ export default function ExploreDetailPage({
   const searchParams = useSearchParams();
   const dimension = (resolvedParams.dimension || '').toLowerCase() as DetailDimension;
   const slug = decodeURIComponent(resolvedParams.slug || '');
+  const tableOnly = searchParams.get('view') === 'table';
   const validDimension = dimension === 'status' || dimension === 'category' || dimension === 'repo';
 
   const [overview, setOverview] = useState<DetailOverview | null>(null);
@@ -207,6 +208,20 @@ export default function ExploreDetailPage({
   const [repoStatsError, setRepoStatsError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
+  const tableOnlyHref = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('view', 'table');
+    const nextQuery = params.toString();
+    return nextQuery ? `${pathname}?${nextQuery}` : pathname;
+  }, [pathname, searchParams]);
+
+  const fullDetailHref = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('view');
+    const nextQuery = params.toString();
+    return nextQuery ? `${pathname}?${nextQuery}` : pathname;
+  }, [pathname, searchParams]);
+
   const fromMonth = useMemo(() => {
     const now = new Date();
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (windowMonths - 1), 1));
@@ -224,6 +239,7 @@ export default function ExploreDetailPage({
 
   useEffect(() => {
     const params = new URLSearchParams();
+    if (tableOnly) params.set('view', 'table');
     if (q.trim()) params.set('q', q.trim());
     if (statusFilter) params.set('status', statusFilter);
     if (categoryFilter) params.set('category', categoryFilter);
@@ -232,7 +248,7 @@ export default function ExploreDetailPage({
     if (windowMonths !== 12) params.set('months', String(windowMonths));
     const next = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(next, { scroll: false });
-  }, [q, statusFilter, categoryFilter, sort, page, windowMonths, pathname, router]);
+  }, [tableOnly, q, statusFilter, categoryFilter, sort, page, windowMonths, pathname, router]);
 
   useEffect(() => {
     if (!validDimension) return;
@@ -477,7 +493,9 @@ export default function ExploreDetailPage({
             <div>
               <h1 className="dec-title persona-title text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Detailed drilldown for this {dimension} bucket with trends, 24h reviews, and proposal-level rows.
+                {tableOnly
+                  ? `Advanced table view for this ${dimension} bucket with proposal-level rows.`
+                  : `Detailed drilldown for this ${dimension} bucket with trends, 24h reviews, and proposal-level rows.`}
               </p>
               {dimension === 'category' && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -485,9 +503,18 @@ export default function ExploreDetailPage({
                 </p>
               )}
             </div>
-            <CopyLinkButton sectionId="explore-detail-header" className="h-8 w-8 rounded-md" />
+            <div className="flex items-center gap-2">
+              <Link
+                href={tableOnly ? fullDetailHref : tableOnlyHref}
+                className="inline-flex h-8 items-center rounded-md border border-border bg-card/60 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground"
+              >
+                {tableOnly ? 'Full detail view' : 'Advanced table only'}
+              </Link>
+              <CopyLinkButton sectionId="explore-detail-header" className="h-8 w-8 rounded-md" />
+            </div>
           </div>
 
+          {!tableOnly ? (
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Total proposals</p>
@@ -505,6 +532,7 @@ export default function ExploreDetailPage({
               ) : null}
             </div>
           </div>
+          ) : null}
 
           {overviewError ? (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -519,7 +547,7 @@ export default function ExploreDetailPage({
             </div>
           ) : null}
 
-          {dimension === 'repo' ? (
+          {!tableOnly && dimension === 'repo' ? (
             <div className="mt-3 rounded-2xl border border-border/80 bg-gradient-to-br from-card/90 via-card/75 to-muted/30 p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold tracking-tight text-foreground">
@@ -601,8 +629,9 @@ export default function ExploreDetailPage({
         </div>
       </section>
 
-      <hr className="border-border/70" />
+      {!tableOnly ? <hr className="border-border/70" /> : null}
 
+      {!tableOnly ? (
       <section id="explore-detail-timeline" className="w-full py-5">
         <div className="mx-auto w-full px-3 sm:px-4 lg:px-5 xl:px-6">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -653,9 +682,11 @@ export default function ExploreDetailPage({
           </div>
         </div>
       </section>
+      ) : null}
 
-      <hr className="border-border/70" />
+      {!tableOnly ? <hr className="border-border/70" /> : null}
 
+      {!tableOnly ? (
       <section id="explore-detail-editor-reviews-24h" className="w-full py-5">
         <div className="mx-auto w-full px-3 sm:px-4 lg:px-5 xl:px-6">
           <div className="mb-3">
@@ -708,6 +739,7 @@ export default function ExploreDetailPage({
           </div>
         </div>
       </section>
+      ) : null}
 
       <hr className="border-border/70" />
 
