@@ -2,6 +2,9 @@ import { optionalAuthProcedure, type Ctx } from './types'
 import { prisma } from '@/lib/prisma'
 import * as z from 'zod'
 
+const HOMEPAGE_EXCLUDED_EIP_NUMBERS_SQL = '(2512, 3297, 1047)';
+const EXCLUDE_PLACEHOLDER_RIPS_SQL = 'rip_number <> 0';
+
 export const governanceTimelineProcedures = {
   getTimelineByCategory: optionalAuthProcedure
     .input(z.object({
@@ -11,8 +14,8 @@ export const governanceTimelineProcedures = {
 const sql = `
         WITH CombinedProposals AS (
           -- EIPs joined with their Snapshot for Category
-          SELECT 
-            EXTRACT(YEAR FROM e.created_at)::int as year,
+          SELECT
+            EXTRACT(YEAR FROM COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)))::int as year,
             CASE
               WHEN s.category IS NOT NULL AND s.category != '' THEN s.category
               WHEN s.type = 'Meta' THEN 'Meta'
@@ -21,17 +24,19 @@ const sql = `
             END as dimension
           FROM eips e
           JOIN eip_snapshots s ON e.id = s.eip_id
-          WHERE e.created_at IS NOT NULL
+          WHERE COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)) IS NOT NULL
+            AND e.eip_number NOT IN ${HOMEPAGE_EXCLUDED_EIP_NUMBERS_SQL}
           UNION ALL
           -- RIPs (Category is always 'RIP')
-          SELECT 
+          SELECT
             EXTRACT(YEAR FROM created_at)::int as year,
             'RIP' as dimension
           FROM rips
           WHERE created_at IS NOT NULL
+            AND ${EXCLUDE_PLACEHOLDER_RIPS_SQL}
           ${!input.includeRIPs ? 'AND 1=0' : ''}
         )
-        SELECT 
+        SELECT
           year,
           dimension as category,
           COUNT(*) as count
@@ -76,22 +81,24 @@ const sql = `
 const sql = `
         WITH CombinedProposals AS (
           -- EIPs
-          SELECT 
-            EXTRACT(YEAR FROM e.created_at)::int as year,
+          SELECT
+            EXTRACT(YEAR FROM COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)))::int as year,
             s.status as dimension
           FROM eips e
           JOIN eip_snapshots s ON e.id = s.eip_id
-          WHERE e.created_at IS NOT NULL
+          WHERE COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)) IS NOT NULL
+            AND e.eip_number NOT IN ${HOMEPAGE_EXCLUDED_EIP_NUMBERS_SQL}
           UNION ALL
           -- RIPs
-          SELECT 
+          SELECT
             EXTRACT(YEAR FROM created_at)::int as year,
             status as dimension
           FROM rips
           WHERE created_at IS NOT NULL
+            AND ${EXCLUDE_PLACEHOLDER_RIPS_SQL}
           ${!input.includeRIPs ? 'AND 1=0' : ''}
         )
-        SELECT 
+        SELECT
           year,
           dimension as status,
           COUNT(*) as count
@@ -148,6 +155,7 @@ const sql = `
           FROM eips e
           JOIN eip_snapshots s ON e.id = s.eip_id
           WHERE e.created_at IS NOT NULL
+            AND e.eip_number NOT IN ${HOMEPAGE_EXCLUDED_EIP_NUMBERS_SQL}
           UNION ALL
           SELECT 
             EXTRACT(YEAR FROM created_at)::int as year,
@@ -155,6 +163,7 @@ const sql = `
             status as status
           FROM rips
           WHERE created_at IS NOT NULL
+            AND ${EXCLUDE_PLACEHOLDER_RIPS_SQL}
           ${!input.includeRIPs ? 'AND 1=0' : ''}
         )
         SELECT year, category, status, COUNT(*)::bigint as count
@@ -213,7 +222,8 @@ const sql = `
           FROM eips e
           JOIN eip_snapshots s ON e.id = s.eip_id
           LEFT JOIN repositories r ON s.repository_id = r.id
-          WHERE EXTRACT(YEAR FROM e.created_at) = ${input.year}
+          WHERE EXTRACT(YEAR FROM COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id))) = ${input.year}
+          AND e.eip_number NOT IN ${HOMEPAGE_EXCLUDED_EIP_NUMBERS_SQL}
           ${!input.includeRIPs ? `AND (r.name IS NULL OR r.name NOT LIKE '%RIPs%')` : ''}
         ),
         RIPData AS (
@@ -229,6 +239,7 @@ const sql = `
             'https://github.com/ethereum/RIPs/blob/master/RIPS/rip-' || rip_number || '.md' as url
           FROM rips
           WHERE EXTRACT(YEAR FROM created_at) = ${input.year}
+          AND ${EXCLUDE_PLACEHOLDER_RIPS_SQL}
           ${!input.includeRIPs ? 'AND 1=0' : ''}
         )
         SELECT * FROM EIPData
@@ -249,17 +260,19 @@ const sql = `
         url: string;
       }>>(sql);
 
-      return results.map(row => ({
-        eipNumber: row.eip_number,
-        title: row.title || '',
-        author: row.author || '',
-        createdAt: row.created_at ? row.created_at.toISOString().split('T')[0] : '',
-        type: row.type,
-        status: row.status,
-        category: row.category,
-        repository: row.repository || '',
-        url: row.url
-      }));
+      return results
+        .filter((row) => Number(row.eip_number) > 0)
+        .map(row => ({
+          eipNumber: row.eip_number,
+          title: row.title || '',
+          author: row.author || '',
+          createdAt: row.created_at ? row.created_at.toISOString().split('T')[0] : '',
+          type: row.type,
+          status: row.status,
+          category: row.category,
+          repository: row.repository || '',
+          url: row.url
+        }));
     }),
 
   getTrendingProposals: optionalAuthProcedure
@@ -451,4 +464,3 @@ try {
       }
     }),
 }
-

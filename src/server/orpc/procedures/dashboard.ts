@@ -452,10 +452,11 @@ export const dashboardProcedures = {
       const [categoryRes, statusRes] = await Promise.all([
         prisma.$queryRawUnsafe<Array<{ year: number | null; category: string; count: bigint }>>(
           `WITH CombinedProposals AS (
-            SELECT EXTRACT(YEAR FROM e.created_at)::int as year,
+            SELECT EXTRACT(YEAR FROM COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)))::int as year,
               CASE WHEN s.category IS NOT NULL AND s.category != '' THEN s.category
                 WHEN s.type = 'Meta' THEN 'Meta' WHEN s.type = 'Informational' THEN 'Informational' ELSE 'Core' END as dimension
-            FROM eips e JOIN eip_snapshots s ON e.id = s.eip_id WHERE e.created_at IS NOT NULL
+            FROM eips e JOIN eip_snapshots s ON e.id = s.eip_id
+            WHERE COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)) IS NOT NULL
             UNION ALL
             SELECT EXTRACT(YEAR FROM created_at)::int as year, 'RIP' as dimension FROM rips WHERE created_at IS NOT NULL ${!includeRIPs ? 'AND 1=0' : ''}
           )
@@ -463,8 +464,10 @@ export const dashboardProcedures = {
         ),
         prisma.$queryRawUnsafe<Array<{ year: number | null; status: string; count: bigint }>>(
           `WITH CombinedProposals AS (
-            SELECT EXTRACT(YEAR FROM e.created_at)::int as year, s.status as dimension
-            FROM eips e JOIN eip_snapshots s ON e.id = s.eip_id WHERE e.created_at IS NOT NULL
+            SELECT EXTRACT(YEAR FROM COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)))::int as year,
+              s.status as dimension
+            FROM eips e JOIN eip_snapshots s ON e.id = s.eip_id
+            WHERE COALESCE(e.created_at, (SELECT MIN(se.changed_at) FROM eip_status_events se WHERE se.eip_id = e.id)) IS NOT NULL
             UNION ALL
             SELECT EXTRACT(YEAR FROM created_at)::int as year, status as dimension FROM rips WHERE created_at IS NOT NULL ${!includeRIPs ? 'AND 1=0' : ''}
           )
