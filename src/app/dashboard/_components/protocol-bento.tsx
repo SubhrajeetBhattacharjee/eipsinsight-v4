@@ -1397,9 +1397,10 @@ export default function ProtocolBento() {
                             } else {
                               repoUrl = `https://github.com/ethereum/EIPs/blob/master/EIPS/eip-${d.eip}.md`;
                             }
-                            return `${index + 1},${d.eip_type}-${d.eip},"${d.title}",${d.deadline},${d.daysRemaining},${repoUrl}`;
+                            const repository = d.repository ?? '';
+                            return `${index + 1},${d.eip_type}-${d.eip},"${d.title}",${d.deadline},${d.daysRemaining},"${repository}",${repoUrl}`;
                           });
-                          const csv = "sr_number,eip_erc_rip_number,title,deadline,days_remaining,link\n" + csvData.join("\n");
+                          const csv = "sr_number,eip_erc_rip_number,title,deadline,days_remaining,repository,link\n" + csvData.join("\n");
                           const blob = new Blob([csv], { type: "text/csv" });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement("a");
@@ -1459,6 +1460,9 @@ export default function ProtocolBento() {
                             </span>
                           </div>
                           <p className="line-clamp-2 text-xs text-muted-foreground">{item.title}</p>
+                          <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                            {item.repository ?? "ethereum/EIPs"}
+                          </p>
                         </div>
                         <div className="shrink-0 text-left sm:text-right">
                           <span className="block text-[10px] text-muted-foreground">Deadline</span>
